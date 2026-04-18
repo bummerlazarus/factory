@@ -175,6 +175,24 @@ Note: Track A proceeded independently of the rebuild notebook via direct commits
 - **Waves 5 and 6 depend on capture volume**, not just on the tables existing. May sit `⚪` for weeks while Wave 2 feeds the corpus. That's fine — the backlog isn't a gantt chart.
 - **Waves 7–8 are optional for a while.** Hild only matters when DC client work volume justifies; specialist-spawn only matters when the core six are saturated.
 
+## Wave OA — Agent infrastructure polish (2026-04-18)
+
+Closes yesterday's verification gaps.
+
+| ID | Epic | Size | Status | Notes |
+|---|---|---|---|---|
+| OA.1 | **Tool tag filtering** — `lib/agent-tools.ts` centralizes tag→tool-group mapping; `agents.tool_tags` column; import script parses master roster. Hild loses FILE tools; Axel keeps them. Closes Ask E. | S | 🟢 | [plan](../05-design/plans/2026-04-18-option-a-agent-infra.md) / [run](autonomous-runs/2026-04-18-option-a-agent-infra.md). Branch `feat/agent-infra-polish` (`abcdfed`). |
+| OA.2 | **Doc-sync admin endpoint + sidebar button** — `POST /api/admin/sync-agents` wraps the iCloud→DB importer; sidebar button surfaces it with status chips. | S | 🟢 | `ef8be02`. |
+| OA.3 | **Persistent wake queue** — `agent_wake_queue` table; `enqueueWake` on every Slack mention; `drainWakeQueue` triggered post-run (via `after()`) + every-minute Vercel cron. MAX_ATTEMPTS=10 on skipped + failed paths. Closes Ask C. | M | 🟢 | `63b60a3` + review fix `a19b24b`. |
+
+**Follow-ups surfaced:**
+- **OA.4 tsconfig cleanup** — exclude `ops/scripts/` and `supabase/functions/` so `npm run build` passes. Blocks W9.5 prod deploy. Size XS.
+- **OA.5 admin `/queue` page** — read-only view of `agent_wake_queue`. Size S. Defer until real usage.
+- **OA.6 move ceo approval from id-gate to tag-gate** — tighten once tool-tag filter has run a while. Size XS.
+
+---
+
 ## Changes
 
+- **2026-04-18** — Wave OA shipped: tool-tag filtering, doc-sync button, persistent wake queue.
 - **2026-04-17** — Initial draft. Reflects state post Phase 0.5 / 1.5 / 2 / 3-MVP.
