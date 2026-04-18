@@ -17,9 +17,15 @@ Edmund's top-level working directory — the in-progress rebuild of the personal
 
 ## Sister repo: dashboard
 
-The Next.js dashboard lives in its own repo: **[bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)**.
+The Next.js dashboard lives in its own repo: **[bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)**. The `dashboard/` path is gitignored here so the two can be worked on independently.
 
-When you clone `factory` fresh on a new machine, clone the dashboard alongside it:
+---
+
+## Bootstrap on a new machine
+
+Step-by-step for getting Claude Code productive on this project on a fresh Mac.
+
+### 1. Clone both repos
 
 ```
 git clone git@github.com:bummerlazarus/factory.git
@@ -27,13 +33,81 @@ cd factory
 git clone git@github.com:bummerlazarus/local-agents-dashboard.git dashboard
 ```
 
-The `dashboard/` path is gitignored in this repo so the two can be worked on independently. On Edmund's existing Mac, `dashboard/` is already in place — nothing to do.
+### 2. Fill in environment secrets
 
-## Secrets
+Both repos ship a `.env.example`. Copy and fill in values (ask Edmund for live secrets or regenerate them):
 
-`.env` and `.env.*` are gitignored. Live secrets for ops scripts sit in `ops/.env` on disk (never committed). Dashboard secrets live in `dashboard/.env.local` (also gitignored in its own repo).
+```
+cp ops/.env.example ops/.env
+cp dashboard/.env.local.example dashboard/.env.local
+```
 
-References to specific secret values in notebook files are replaced with placeholders like `<CAPTURE_SECRET — see ops/.env (gitignored)>`.
+Both files are gitignored (`.env*` pattern). The examples enumerate every key the code expects.
+
+### 3. `COWORK_PATH`
+
+`dashboard/.env.local` needs `COWORK_PATH` set to the iCloud folder that holds the agent definitions. On macOS this is typically:
+
+```
+/Users/<you>/Library/Mobile Documents/com~apple~CloudDocs/CEO Cowork
+```
+
+iCloud sync'd, so on a new Mac signed into the same Apple ID the folder appears automatically. If it isn't there, Edmund can force download via Finder.
+
+### 4. Install dashboard deps + dev server
+
+```
+cd dashboard
+npm install
+npm run dev  # http://localhost:3000
+```
+
+### 5. Push agent definitions from disk to Supabase
+
+Agents in the dashboard are loaded from the `public.agents` Supabase table, not from disk at runtime. When you edit an agent's `identity.md`/`CLAUDE.md`/`soul.md` on disk, re-run the import script to sync:
+
+```
+cd dashboard
+node --env-file=.env.local scripts/import-agents-from-icloud.mjs
+```
+
+(This is idempotent — safe to re-run any time.)
+
+### 6. Connect MCP servers Claude Code needs
+
+Edmund's MCP stack (install in order, each is `claude mcp add`):
+
+- Supabase (official plugin)
+- Pinecone (legacy, being retired)
+- Notion (official plugin)
+- Firecrawl
+- Playwright
+- Vercel
+- `capture-mcp` — the custom Edge Function MCP at `https://<supabase-project>.supabase.co/functions/v1/capture-mcp` with `x-capture-secret: <SUPABASE_CAPTURE_SECRET>`.
+
+Full config lives in `~/.claude/settings.json` on Edmund's Mac. That file is not part of this repo; the autonomy charter treats `~/.claude/` as off-limits.
+
+### 7. Memory
+
+Claude Code auto-memory lives at `~/.claude/projects/-Users-<you>-factory/memory/`. Not portable through git. Either:
+
+- Sync `~/.claude/` via iCloud Drive / Dropbox / a private dotfiles repo
+- Or let a fresh machine rebuild memory over the first few sessions
+
+### 8. Read the notebook
+
+Start here:
+
+- `CLAUDE.md` (this repo's project instructions)
+- `architecture rebuild 2026-04-17/00-README.md`
+- `architecture rebuild 2026-04-17/06-handoffs/autonomy-charter.md` (rules of engagement for autonomous runs)
+- Most recent handoff in `architecture rebuild 2026-04-17/06-handoffs/` (filename starts with today's date or the most recent one)
+
+---
+
+## Secrets posture
+
+`.env` and `.env.*` are gitignored in both repos. The `*.example` variants are tracked (shape only, no values). Any notebook references to specific secret values have been scrubbed to placeholders like `<CAPTURE_SECRET — see ops/.env (gitignored)>`.
 
 ## Working style
 
