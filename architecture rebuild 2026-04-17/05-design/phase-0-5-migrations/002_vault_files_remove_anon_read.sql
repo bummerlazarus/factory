@@ -1,0 +1,27 @@
+-- Migration 002 — 2026-04-17
+-- Phase 0.5: Security fixes
+--
+-- Problem:
+--   Policy `anon_read_by_token` grants SELECT to any anon user with qual `auth.role() = 'anon'`.
+--   There is no `share_token` check inside the policy itself, so any anon query without a
+--   `WHERE share_token = ...` filter returns all vault file metadata (titles, paths, sizes).
+--
+-- Fix:
+--   Drop the policy. Anon users lose direct access to the table. Share links, if/when
+--   reintroduced, should use Supabase Storage signed URLs (native, time-limited, per-file)
+--   rather than a metadata-table SELECT policy.
+--
+-- Authenticated and service_role access remain via the other two policies.
+--
+-- Verification:
+--   SELECT policyname FROM pg_policies WHERE tablename = 'vault_files' AND policyname = 'anon_read_by_token';
+--   -- expected: 0 rows
+--
+-- Rollback (NOT recommended — re-introduces the leak):
+--   CREATE POLICY anon_read_by_token ON public.vault_files
+--     FOR SELECT TO public USING (auth.role() = 'anon');
+--
+-- Note: User (Edmund) confirmed acceptable to break existing anon share links — he is
+-- the only user. If share links are needed again, use Storage signed URLs.
+
+DROP POLICY IF EXISTS anon_read_by_token ON public.vault_files;

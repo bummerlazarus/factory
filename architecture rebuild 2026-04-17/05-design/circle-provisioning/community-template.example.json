@@ -1,0 +1,102 @@
+{
+  "$schema": "./schema.md",
+  "community": {
+    "name": "Zealous Parish Ministers",
+    "meta_title": "Zealous Parish Ministers — for ministry leaders who want to do more than survive",
+    "meta_description": "The community for parish ministers who want to be directors, managers, AND ministers — not just one."
+  },
+  "space_groups": [
+    {
+      "slug": "start-here",
+      "name": "Start Here",
+      "hide_members_count": false,
+      "allow_members_to_create_spaces": false,
+      "automatically_add_members_to_new_spaces": true
+    },
+    {
+      "slug": "rhythm",
+      "name": "The Rhythm",
+      "automatically_add_members_to_new_spaces": true
+    }
+  ],
+  "spaces": [
+    {
+      "slug": "welcome",
+      "space_group_slug": "start-here",
+      "name": "Welcome",
+      "space_type": "posts",
+      "emoji": "👋",
+      "cover_image_path": "./assets/welcome-cover.jpg",
+      "cover_image_visible": true,
+      "cover_image_display_style": "wide",
+      "is_private": false,
+      "is_hidden_from_non_members": false,
+      "default_sort": "latest",
+      "show_next_event": false,
+      "default_notification_setting": "all",
+      "meta_tag_attributes": {
+        "meta_title": "Welcome | ZPM",
+        "meta_description": "Start here — introduce yourself and get the lay of the land.",
+        "opengraph_title": "Welcome to ZPM"
+      }
+    },
+    {
+      "slug": "assessment",
+      "space_group_slug": "start-here",
+      "name": "Role Assessment",
+      "space_type": "posts",
+      "emoji": "📋",
+      "cover_image_path": "./assets/assessment-cover.jpg",
+      "cover_image_visible": true,
+      "cover_image_display_style": "normal",
+      "is_post_disabled": true,
+      "lock_screen_blocks": null,
+      "meta_tag_attributes": {
+        "meta_title": "Role Assessment | ZPM",
+        "meta_description": "Score yourself across the three roles: director, manager, minister."
+      }
+    },
+    {
+      "slug": "weekly-rhythm",
+      "space_group_slug": "rhythm",
+      "name": "Weekly Rhythm",
+      "space_type": "posts",
+      "emoji": "📅",
+      "cover_image_path": "./assets/weekly-cover.jpg",
+      "cover_image_visible": true,
+      "cover_image_display_style": "wide",
+      "default_sort": "latest",
+      "default_notification_setting": "all",
+      "event_auto_rsvp_enabled": true
+    },
+    {
+      "slug": "director-lessons",
+      "space_group_slug": "rhythm",
+      "name": "Director Lessons",
+      "space_type": "course",
+      "emoji": "🎯",
+      "cover_image_path": "./assets/director-cover.jpg",
+      "cover_image_display_style": "wide",
+      "course_setting": {
+        "course_type": "sequential",
+        "enforce_lessons_order": true,
+        "custom_section_label": "Module",
+        "custom_lesson_label": "Lesson",
+        "new_comment_notification_enabled": true
+      }
+    }
+  ],
+  "topics": [
+    { "name": "Prayer & Spiritual Life" },
+    { "name": "Director Work" },
+    { "name": "Manager Work" },
+    { "name": "Minister Work" },
+    { "name": "Ask the Community" }
+  ],
+  "member_tags": [
+    { "name": "Founding Member" },
+    { "name": "Beta Cohort" },
+    { "name": "Parish Staff" },
+    { "name": "Volunteer Leader" }
+  ]
+}

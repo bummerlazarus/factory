@@ -1,0 +1,21 @@
+-- Migration 001 — 2026-04-17
+-- Phase 0.5: Security fixes
+--
+-- Problem:
+--   Policy `public_update_scorecard` on `scorecard_responses` has qual=true, with_check=true,
+--   allowing any anon user to UPDATE any row via the REST API.
+--
+-- Fix:
+--   Drop the policy entirely. Scorecard rows should only be mutated by the service role
+--   (Edge Functions or MCP with service key) going forward. Public forms submit new rows
+--   via the separate `public_insert_scorecard` policy, which remains in place.
+--
+-- Verification:
+--   SELECT policyname FROM pg_policies WHERE tablename = 'scorecard_responses' AND cmd = 'UPDATE';
+--   -- expected: 0 rows
+--
+-- Rollback (NOT recommended — re-introduces the vulnerability):
+--   CREATE POLICY public_update_scorecard ON public.scorecard_responses
+--     FOR UPDATE TO public USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS public_update_scorecard ON public.scorecard_responses;

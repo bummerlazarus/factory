@@ -1,0 +1,22 @@
+-- Migration 003 — 2026-04-17
+-- Phase 0.5: Security fixes
+--
+-- Problem:
+--   Table `agent_conversations` (stores conversation message arrays as JSONB) has RLS disabled.
+--   If the anon key is ever exposed client-side, all conversation history is world-readable.
+--
+-- Fix:
+--   Enable RLS. No explicit policies are added — Supabase's `service_role` has the
+--   BYPASSRLS attribute, so Edge Functions and MCP calls using the service key continue
+--   to work. Anon and authenticated roles are denied by default (no matching policy).
+--
+-- Verification:
+--   SELECT relrowsecurity FROM pg_class
+--     JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+--     WHERE pg_namespace.nspname = 'public' AND pg_class.relname = 'agent_conversations';
+--   -- expected: true
+--
+-- Rollback:
+--   ALTER TABLE public.agent_conversations DISABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.agent_conversations ENABLE ROW LEVEL SECURITY;
