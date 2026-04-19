@@ -153,7 +153,7 @@ Note: Track A proceeded independently of the rebuild notebook via direct commits
 | W9.2 | **Q10 security hardening** — 🟢 SHIPPED 2026-04-19 (branch `feat/w9-2-security-hardening`, commit `8b12133`). Four migrations applied live: RLS enabled on 11 tables (Q10 seven + 4 post-Q10 surprise — `agent_run_logs`, `reference_docs_kinds`, `beehiiv_post_metrics`, `workstreams`); `service_role_all` policies per table; `search_path` pinned on 3 functions; broad SELECT policy on `media` bucket dropped. Security advisor confirms: zero `rls_disabled_in_public`, zero `function_search_path_mutable`, zero `public_bucket_allows_listing`. Remaining: Edmund toggles leaked-password protection manually. See [plan](../05-design/plans/2026-04-19-w9-2-security-hardening.md) + [run log](autonomous-runs/2026-04-19-w9-2-security-hardening.md). | M | - | Q10 ✅ | 🟢 |
 | W9.3 | **Decommission Pinecone** — index deletion after dual-read parity + 1 week observation. Not automated. | S | W1.4 green | Edmund approval | ⛔ |
 | W9.4 | **Decommission GravityClaw / Railway** — remove MCP registration; archive repo; cancel Railway. | S | All callers migrated | Edmund approval | ⛔ |
-| W9.5 | **Production promotion of `/dashboard/`** — Vercel prod deploy; auth + magic link live. | S | W3.8 + W9.2 | Edmund approval | ⛔ |
+| W9.5 | **Production promotion of `/dashboard/`** — Vercel prod deploy; auth + magic link live. Technical prereqs all 🟢 as of 2026-04-19: build passes (OA.4), W9.2 security hardening shipped + merged to main, leaked-password protection toggled, advisor clean on all targeted items. Awaiting Edmund's explicit go. | S | W3.8 + W9.2 ✅ | Edmund approval | ⛔ |
 
 ---
 
