@@ -15,6 +15,32 @@ Format:
 
 ---
 
+## 2026-04-19 — W10 compression engine shipped
+
+**Decision:** Ship the Wave 10 compression engine — shared LLM helper with tier routing + stochastic consensus, typed-link vocabulary, four new agents (Processor/Axum, Researcher/Sophia, Contradiction/Kontra, Permanent Gate/Kairos, IP Specialist/Augustin), upgraded `research-director-synthesis` to N=3 stochastic consensus, OpenRouter-first routing, and a `/compression` dashboard route. Dashboard commit `a519da3` on branch `feat/compression-engine`.
+
+**Context:** Pillar 4 (self-improving loops) needed a compression layer — turning raw observations/themes/connections into tensions, contradictions, and permanent IP. Four design choices came up during the ship and are worth pinning down so later sessions don't relitigate them.
+
+**Sub-decisions:**
+
+1. **Relaxed the `reference_docs` CHECK constraint for `kind='tension'`.** Original plan required `source_id` + `target_id` on every typed link. Relaxed for `tension` only: the Processor surfaces memory↔memory tensions at CEQRC time, and memory rows aren't `reference_docs` — so endpoints live in `metadata.source_memory_id` / `metadata.target_memory_id` instead. Reference-doc-level tensions still use the strict columns. Tradeoff: two shapes of "tension" in the same table, distinguished by metadata presence. Accepted because a separate table would double the query surface for a one-off polymorphism.
+
+2. **Augustin is a new agent, not a Corva scope extension.** The plan offered either. Edmund picked new agent: CEQRC ritual is convergent/dialogic Opus-tier work, distinct from Corva's divergent content drafting. Conflating them would muddy both system prompts. Cost: one more agent to maintain (adds to the expanding-team surface tracked in W8).
+
+3. **N=3 starting consensus size, not N=5.** Research consensus is N=5 is the sweet spot for stochastic-consensus LLM output, but N=3 is enough to pilot disagreement detection. Keeps cost and latency lower during the shake-out period. Configurable via env var — bump to N=5 once the disagreement signal proves useful on real W10 output.
+
+4. **OpenRouter-first routing in the shared `_shared/llm.ts` helper.** One key, many models across tiers (mid = `anthropic/claude-sonnet-4-6`, strong = `anthropic/claude-opus-4-7`, etc.). Fallback to direct OpenAI if OpenRouter is unavailable. Tradeoff: model slugs are OpenRouter-specific — if they rename, mid/strong tiers break until slugs are updated; the fallback path loses Claude entirely (OpenAI-only). Accepted because single-key simplicity beats multi-provider plumbing at current scale.
+
+**Consequences:**
+- Typed-link vocabulary (`source_id` / `target_id` columns on `reference_docs`) is now live and used by Processor output; other agents can link rows without adding bespoke metadata conventions.
+- `research-director-synthesis` now calls the shared helper in N=3 consensus mode; per-function tier selection is env-configured.
+- `/compression` dashboard route surfaces Approve/Dismiss for Kairos-escalated proposals. UI wiring across other surfaces (chat tools, `/research` kind extension, Ask Sophia button) is in flight as W10.10.
+- W6.6 atomic-draft progressive rewrite cron deferred — holding to the rule-of-three before a fifth agent starts writing into `reference_docs`.
+
+**Status:** active
+
+---
+
 ## 2026-04-17 — W1.3 resolved: leave the stale cleanup commit in place
 
 **Decision:** Edmund picks **leave** for W1.3. Local commit `5d32f83` (pre-agents-refactor tool-cleanup) stays on the local branch, unpushed. No micro-cleanup PR. Actual removal of `notion_sync` (stub) and `recalibrate_pinecone` (unwired feedback loop) deferred to W9.4 when GravityClaw is decommissioned.

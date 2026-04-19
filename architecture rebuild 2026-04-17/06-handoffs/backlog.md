@@ -150,10 +150,30 @@ Note: Track A proceeded independently of the rebuild notebook via direct commits
 | W9.1a | **Phase 5 schema cleanup — additive** — 11 missing DESC indexes + 8 UUID defaults moved to `gen_random_uuid()`. Applied 2026-04-17 as migration `schema_cleanup_additive_2026_04_17`. See `06-handoffs/autonomous-runs/2026-04-17-w9-1-schema-cleanup-additive.md`. | S | W3.x + W1.2 | - | 🟢 |
 | W9.1b | **Phase 5 schema cleanup — destructive** — dropped `public.scheduled_tasks` (7 rows), `public.agent_habits` (0 rows), and extension `"uuid-ossp"`. Pre-drop: 0 inbound FKs on both tables, 0 non-extension `pg_depend` rows for uuid-ossp, 0 user functions/defaults referencing `uuid_generate_v4`. Applied 2026-04-17 as migration `schema_cleanup_destructive_2026_04_17`. See `06-handoffs/autonomous-runs/2026-04-17-w9-1b-schema-cleanup-destructive.md`. | S | W9.1a | Edmund approval | 🟢 |
 | W9.1c | 🟢 **Kind-vocabulary refactor (reference_docs_kinds table + FK)** — SHIPPED 2026-04-17. Lifted `reference_docs.kind` vocabulary out of `CHECK (kind IN (...))` (which had been rewritten 4x in one day, silently dropping `'educated-bet'` at one point) into `public.reference_docs_kinds` with a FK. 15 kinds seeded (14 documented + `connection` auto-captured from orphan audit — W6.2b had landed silently). Future Skills now add kinds via `INSERT ... ON CONFLICT DO NOTHING`. Convention in `dashboard/supabase/README.md`. Migration `20260417140000_reference_docs_kinds_table.sql`. Plan `05-design/plans/2026-04-17-kind-vocabulary-refactor.md`, run log `06-handoffs/autonomous-runs/2026-04-17-kind-vocabulary-refactor.md`. | S | - | - | 🟢 |
-| W9.2 | **Q10 security hardening** — RLS on the 7 competitive-intel tables; fix mutable search_path on 3 functions; tighten `media` bucket; enable leaked-password protection. | M | - | Q10 | ⛔ |
+| W9.2 | **Q10 security hardening** — 🟢 SHIPPED 2026-04-19 (branch `feat/w9-2-security-hardening`, commit `8b12133`). Four migrations applied live: RLS enabled on 11 tables (Q10 seven + 4 post-Q10 surprise — `agent_run_logs`, `reference_docs_kinds`, `beehiiv_post_metrics`, `workstreams`); `service_role_all` policies per table; `search_path` pinned on 3 functions; broad SELECT policy on `media` bucket dropped. Security advisor confirms: zero `rls_disabled_in_public`, zero `function_search_path_mutable`, zero `public_bucket_allows_listing`. Remaining: Edmund toggles leaked-password protection manually. See [plan](../05-design/plans/2026-04-19-w9-2-security-hardening.md) + [run log](autonomous-runs/2026-04-19-w9-2-security-hardening.md). | M | - | Q10 ✅ | 🟢 |
 | W9.3 | **Decommission Pinecone** — index deletion after dual-read parity + 1 week observation. Not automated. | S | W1.4 green | Edmund approval | ⛔ |
 | W9.4 | **Decommission GravityClaw / Railway** — remove MCP registration; archive repo; cancel Railway. | S | All callers migrated | Edmund approval | ⛔ |
 | W9.5 | **Production promotion of `/dashboard/`** — Vercel prod deploy; auth + magic link live. | S | W3.8 + W9.2 | Edmund approval | ⛔ |
+
+---
+
+## Wave 10 — Compression engine (2026-04-18)
+
+Turn raw observations / themes / connections into tensions, contradictions, and permanent IP. Dashboard branch `feat/compression-engine`, commit `a519da3`. See decisions-log `2026-04-19 — W10 compression engine shipped` for the four sub-decisions (relaxed tension CHECK, Augustin as new agent, N=3 consensus, OpenRouter-first).
+
+| ID | Epic | Size | Depends on | Needs decision? | Status |
+|---|---|---|---|---|---|
+| W10.0 | **Shared LLM helper** — `_shared/llm.ts` with OpenRouter tier routing (mid/strong) + stochastic-consensus aggregator (N configurable, default 3). Fallback to direct OpenAI when OpenRouter unavailable. | M | - | - | 🟢 DONE 2026-04-18 |
+| W10.1 | **Typed-link vocabulary + `source_id`/`target_id` columns** — additive migration on `reference_docs`; CHECK relaxed for `kind='tension'` (endpoints in `metadata.source_memory_id`/`target_memory_id` for memory↔memory). | S | - | - | 🟢 DONE 2026-04-18 |
+| W10.2 | **Processor agent (Axum)** + `processor-hourly` pg_cron — surfaces memory↔memory tensions at CEQRC time. | M | W10.1 | - | 🟢 DONE 2026-04-18 |
+| W10.3 | **`research-director-synthesis` upgraded to N=3 stochastic consensus** — via shared helper. | S | W10.0 | - | 🟢 DONE 2026-04-18 |
+| W10.4 | **Researcher agent (Sophia)** Edge Function. | M | W10.0 | - | 🟢 DONE 2026-04-18 |
+| W10.5 | **Contradiction agent (Kontra)** + `contradiction-weekly` pg_cron. | M | W10.0, W10.1 | - | 🟢 DONE 2026-04-18 |
+| W10.6 | **Permanent Gate agent (Kairos)** — stochastic-consensus review + Opus debate escalation on disagreement. | M | W10.0 | - | 🟢 DONE 2026-04-18 |
+| W10.7 | **IP Specialist agent (Augustin)** synced + `/compression` dashboard route (Approve/Dismiss surface). New agent (not a Corva extension) per decisions-log. | M | W10.6 | - | 🟢 DONE 2026-04-18 |
+| W10.8 | **Atomic-draft progressive rewrite cron** (was W6.6 in original notebook). Deferred per rule-of-three; revisit after 3+ weekly rituals show need. | M | W10.7 | Edmund taste | ⏸️ HELD |
+| W10.9 | **OpenRouter wiring + per-function model tier** — env-configured; fallback to OpenAI direct. | S | W10.0 | - | 🟢 DONE 2026-04-18 |
+| W10.10 | **UI wiring** — chat tools, `/research` kinds extension (tension/contradiction/permanent-ip), `/research/[id]` detail, `/compression` Approve/Dismiss, sidebar nav, Ask Sophia button. | M | W10.7 | - | 🔵 IN PROGRESS 2026-04-19 |
 
 ---
 
@@ -186,7 +206,7 @@ Closes yesterday's verification gaps.
 | OA.3 | **Persistent wake queue** — `agent_wake_queue` table; `enqueueWake` on every Slack mention; `drainWakeQueue` triggered post-run (via `after()`) + every-minute Vercel cron. MAX_ATTEMPTS=10 on skipped + failed paths. Closes Ask C. | M | 🟢 | `63b60a3` + review fix `a19b24b`. |
 
 **Follow-ups surfaced:**
-- **OA.4 tsconfig cleanup** — exclude `ops/scripts/` and `supabase/functions/` so `npm run build` passes. Blocks W9.5 prod deploy. Size XS.
+- **OA.4 tsconfig cleanup** — 🟢 DONE 2026-04-19. Excluded `ops/scripts/` + `supabase/functions/` in `dashboard/tsconfig.json` (branch `feat/oa-4-tsconfig`, commit `4e76b6c`). `npx tsc --noEmit` exits 0; `npm run build` green with env populated. W9.5 build-passes criterion now satisfied. [run log](autonomous-runs/2026-04-19-oa-4-tsconfig.md).
 - **OA.5 admin `/queue` page** — read-only view of `agent_wake_queue`. Size S. Defer until real usage.
 - **OA.6 move ceo approval from id-gate to tag-gate** — tighten once tool-tag filter has run a while. Size XS.
 
