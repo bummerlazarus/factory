@@ -86,6 +86,19 @@ Edmund is new to AI-driven research. The agent teaches methodology as it goes:
 6. **Specialist agents:** What are Sophia's capabilities? Compression engine capabilities?
 7. **Publishing integration:** When research is ready, how does director help prepare for publication?
 
+## Reference: Open Source Tools Evaluated
+
+See `/04-audit/2026-04-20-research-tools-audit.md` for full analysis.
+
+**Tools considered:**
+- **PaperQA2** (Future House) — Literature synthesis with citations; strong foundation but missing orchestration
+- **OpenScholar** (UW/Akari Asai) — More accurate multi-paper synthesis than PaperQA2
+- **LangGraph** (LangChain) — Multi-agent orchestration with human-in-the-loop; considered but deemed over-engineered for our needs
+- **Open Notebook** — Collaborative research workspace; good reference for document management
+- **Elicit** (proprietary) — Benchmark for systematic review accuracy
+
+**Decision:** Build Claude-native director agent with light Supabase coordination rather than full LangGraph orchestration. Director can delegate to Sophia, compression engine; leverage PaperQA2 if needed for literature synthesis.
+
 ## Next Steps
 
 Move to planning phase: Define schemas, file structure, agent instructions, weekly review format.
