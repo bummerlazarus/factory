@@ -173,7 +173,7 @@ Turn raw observations / themes / connections into tensions, contradictions, and 
 | W10.7 | **IP Specialist agent (Augustin)** synced + `/compression` dashboard route (Approve/Dismiss surface). New agent (not a Corva extension) per decisions-log. | M | W10.6 | - | 🟢 DONE 2026-04-18 |
 | W10.8 | **Atomic-draft progressive rewrite cron** (was W6.6 in original notebook). Deferred per rule-of-three; revisit after 3+ weekly rituals show need. | M | W10.7 | Edmund taste | ⏸️ HELD |
 | W10.9 | **OpenRouter wiring + per-function model tier** — env-configured; fallback to OpenAI direct. | S | W10.0 | - | 🟢 DONE 2026-04-18 |
-| W10.10 | **UI wiring** — chat tools, `/research` kinds extension (tension/contradiction/permanent-ip), `/research/[id]` detail, `/compression` Approve/Dismiss, sidebar nav, Ask Sophia button. | M | W10.7 | - | 🔵 IN PROGRESS 2026-04-19 |
+| W10.10 | **UI wiring** — chat tools, `/research` kinds extension (tension/contradiction/permanent-ip), `/research/[id]` detail, `/compression` Approve/Dismiss, sidebar nav, Ask Sophia button. | M | W10.7 | - | 🟢 DONE 2026-04-19 (branch `w10-10-ui-wiring`, unmerged) |
 
 ---
 
