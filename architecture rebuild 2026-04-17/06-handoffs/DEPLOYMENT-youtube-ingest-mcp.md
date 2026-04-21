@@ -223,13 +223,39 @@ Both tables must exist. If they don't, add them:
 - [x] MCP client can call `youtube_ingest` from Claude chat
 - [ ] End-to-end test: Claude asks to ingest a video → chunks appear in memory table
 
+## Smart transcript fetching: The companion script
+
+For videos without captions (or to automate the entire process), use `ops/scripts/ingest-youtube.ts`:
+
+```bash
+deno run --allow-env --allow-run --allow-read --allow-write --allow-net \
+  ops/scripts/ingest-youtube.ts "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+```
+
+The script:
+1. Tries to extract captions with yt-dlp (if available)
+2. Falls back to Whisper transcription if no captions
+   - Local Whisper CLI (free, no API calls)
+   - Or OpenAI Whisper API (if local unavailable)
+3. POSTs the transcript to youtube-ingest Edge Function
+
+**Setup:**
+```bash
+pip install yt-dlp ffmpeg
+pip install openai-whisper  # optional for local transcription
+export SUPABASE_URL="..." CAPTURE_SECRET="..."
+```
+
+See `ops/scripts/README-youtube-ingest.md` for complete docs.
+
 ## Follow-ups
 
-- [ ] Integrate with `ops/scripts/ingest-youtube.ts` (Deno script that shells to yt-dlp and POSTs here)
-- [ ] Add optional UI dashboard trigger (`/ingest` page with URL input)
+- [x] Smart transcript fetching via companion script (yt-dlp + Whisper fallback) — DONE
+- [ ] Add optional UI dashboard trigger (`/ingest` page with URL input that calls the script or MCP tool)
 - [ ] Monitor embedding latency (OpenAI API call per chunk)
-- [ ] Consider batch ingest (multiple videos at once) if volume grows
+- [ ] Consider batch ingest API (multiple videos at once) if volume grows
 - [ ] Add more tools to youtube-ingest-mcp if needed (e.g., `search_youtube_memory`, `list_recent_ingests`)
+- [ ] Scheduled task: `youtube_sync` (poll channel for new uploads, auto-ingest)
 
 ## Troubleshooting
 

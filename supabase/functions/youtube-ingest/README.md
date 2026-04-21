@@ -179,8 +179,23 @@ curl -X POST https://obizmgugsqirmnjpirnh.supabase.co/functions/v1/youtube-inges
   }'
 ```
 
-### Deno: With yt-dlp companion script
-See `ops/scripts/ingest-youtube.ts` for the two-phase workflow: fetch transcript locally, then POST here.
+### Deno: With yt-dlp + Whisper companion script (recommended)
+See `ops/scripts/ingest-youtube.ts` (detailed guide at `ops/scripts/README-youtube-ingest.md`).
+
+Smart transcript fetching:
+```bash
+deno run --allow-env --allow-run --allow-read --allow-write --allow-net \
+  ops/scripts/ingest-youtube.ts "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+```
+
+The script:
+1. Tries yt-dlp to extract captions (if available)
+2. Falls back to Whisper transcription if no captions
+   - Local Whisper (free, no API calls)
+   - Or OpenAI Whisper API (if local unavailable)
+3. POSTs the transcript here for chunking/embedding
+
+This is the **recommended path** for bulk ingestion or when videos lack captions.
 
 ### Force re-ingest
 ```bash

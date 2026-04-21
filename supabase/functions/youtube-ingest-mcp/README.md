@@ -115,6 +115,21 @@ The function also passes through to `youtube-ingest`:
 - `YOUTUBE_API_KEY` — For metadata fetch
 - `YOUTUBE_CHANNEL_ID` — For owned-video detection
 
+## When to use this MCP tool
+
+**Use this MCP tool when:**
+- You already have the transcript (you copied it, or have it handy)
+- You're asking Claude to ingest a video and can provide the transcript
+- You want to call it directly from Claude chat
+
+**Use the companion script instead when:**
+- Video has captions → script extracts them automatically
+- Video lacks captions → script falls back to Whisper transcription
+- You're doing bulk ingestion
+- You want to automate the process
+
+See `ops/scripts/README-youtube-ingest.md` for the companion script.
+
 ## Client Setup
 
 ### Claude Desktop
