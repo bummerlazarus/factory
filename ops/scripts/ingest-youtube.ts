@@ -92,18 +92,22 @@ async function getYoutubeMetadata(videoId: string): Promise<YoutubeMetadata> {
 async function tryFetchCaptions(videoId: string): Promise<string | null> {
   console.log(`[yt-dlp] Trying to fetch captions for ${videoId}...`);
 
-  const tempFile = `/tmp/yt_captions_${videoId}.vtt`;
+  const outputTemplate = `/tmp/yt_${videoId}`;
 
   const proc = Deno.run({
     cmd: [
       "yt-dlp",
       "--no-warnings",
       "--quiet",
+      "--skip-download",
       "--write-auto-subs",
+      "--write-subs",
+      "--sub-langs",
+      "en.*,en",
       "--sub-format",
       "vtt",
       "-o",
-      `/tmp/yt_${videoId}`,
+      outputTemplate,
       `https://www.youtube.com/watch?v=${videoId}`,
     ],
     stdout: "piped",
@@ -117,14 +121,27 @@ async function tryFetchCaptions(videoId: string): Promise<string | null> {
     return null;
   }
 
+  // yt-dlp writes files like /tmp/yt_<id>.en.vtt or /tmp/yt_<id>.en-US.vtt
+  let captionFile: string | null = null;
+  for await (const entry of Deno.readDir("/tmp")) {
+    if (entry.isFile && entry.name.startsWith(`yt_${videoId}.`) && entry.name.endsWith(".vtt")) {
+      captionFile = `/tmp/${entry.name}`;
+      break;
+    }
+  }
+
+  if (!captionFile) {
+    console.log(`[yt-dlp] Caption file not found, falling back to Whisper`);
+    return null;
+  }
+
   try {
-    const captions = await Deno.readTextFile(tempFile);
-    console.log(`[yt-dlp] ✓ Captions fetched (${captions.length} bytes)`);
-    // Cleanup
-    await Deno.remove(tempFile).catch(() => {});
+    const captions = await Deno.readTextFile(captionFile);
+    console.log(`[yt-dlp] ✓ Captions fetched from ${captionFile} (${captions.length} bytes)`);
+    await Deno.remove(captionFile).catch(() => {});
     return captions;
   } catch {
-    console.log(`[yt-dlp] Caption file not found, falling back to Whisper`);
+    console.log(`[yt-dlp] Caption file unreadable, falling back to Whisper`);
     return null;
   }
 }

@@ -75,11 +75,15 @@ function parseVtt(vttText: string): Array<{ text: string; start_time: string; en
       }
 
       if (textLines.length > 0) {
-        cues.push({
-          text: textLines.join(" "),
-          start_time: startTime,
-          end_time: endTime,
-        });
+        const cleaned = textLines
+          .join(" ")
+          .replace(/<\d{2}:\d{2}:\d{2}\.\d{3}>/g, "")
+          .replace(/<\/?c[^>]*>/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (cleaned) {
+          cues.push({ text: cleaned, start_time: startTime, end_time: endTime });
+        }
       }
     }
     i++;
@@ -321,16 +325,19 @@ Deno.serve(async (req: Request) => {
         };
 
         if (embedding) {
-          const { data: memoryRow, error: insertError } = await supabase.from("memory").insert([
-            {
-              content: chunk.text,
-              namespace: "knowledge",
-              source: "youtube",
-              source_id: videoId,
-              embedding,
-              metadata,
-            },
-          ]).select("id");
+          const { data: memoryRow, error: insertError } = await supabase.from("memory").upsert(
+            [
+              {
+                content: chunk.text,
+                namespace: "knowledge",
+                source: "youtube",
+                source_id: `${videoId}#${chunk.chunk_index}`,
+                embedding,
+                metadata,
+              },
+            ],
+            { onConflict: "source,source_id" }
+          ).select("id");
 
           if (insertError) {
             warnings.push("memory_insert_failed");
