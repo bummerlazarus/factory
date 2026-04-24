@@ -2,6 +2,20 @@
 
 MCP server exposing the `youtube_ingest` tool to Claude chat. Thin proxy over the `youtube-ingest` Edge Function following the W2.4 `capture-mcp` pattern.
 
+## ⚠️ When NOT to use this MCP
+
+**For full-length videos, prefer the local script:**
+
+```bash
+/Users/edmundmitchell/factory/ops/bin/ingest-youtube.sh <youtube-url> [--force] [--tags t1,t2]
+```
+
+The MCP requires the `transcript` string as a tool argument. When Claude Code calls it, the entire transcript (~100KB+ for a typical podcast) flows through the model's context on the way in and out, burning tokens and adding noticeable latency. The local script skips the MCP entirely, `curl`s the `youtube-ingest` Edge Function directly with the transcript as the POST body, and returns just the small JSON summary.
+
+Rule of thumb:
+- **Short clip / caller already holds a small transcript string** → MCP is fine
+- **Full podcast / video / anything >5 minutes** → use the script
+
 ## Architecture
 
 ```

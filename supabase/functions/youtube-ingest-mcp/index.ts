@@ -63,7 +63,7 @@ function handleJsonRpc(req: JsonRpcRequest): JsonRpcResponse {
           {
             name: "youtube_ingest",
             description:
-              "Ingest a YouTube video: fetch transcript, chunk, embed, and store in memory. Two-phase model: caller provides transcript text (fetched locally via yt-dlp or similar). Returns video_id, chunks_written, memory_ids, and warnings.",
+              "Ingest a YouTube video: fetch transcript, chunk, embed, and store in memory. Two-phase model: caller provides transcript text (fetched locally via yt-dlp or similar). Returns video_id, chunks_written, memory_ids, and warnings. IMPORTANT FOR CLAUDE CODE: do NOT use this tool for full-length videos — the transcript string flows through Claude's context and adds ~30k tokens per 100KB of text, making the call slow and expensive. For anything longer than ~5 minutes, use the local script at /Users/edmundmitchell/factory/ops/bin/ingest-youtube.sh <url> which POSTs straight to the youtube-ingest Edge Function and keeps the transcript out of context. This MCP tool is fine for short clips or when the caller already has the transcript as a small string.",
             inputSchema: {
               type: "object",
               properties: {
