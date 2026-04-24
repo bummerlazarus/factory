@@ -213,7 +213,8 @@ async function transcribeWithWhisperLocal(audioPath: string): Promise<string> {
       "vtt",
       "--output_dir",
       "/tmp",
-      "--quiet",
+      "--verbose",
+      "False",
     ],
     stdout: "piped",
     stderr: "piped",
@@ -245,6 +246,32 @@ async function transcribeWithWhisperLocal(audioPath: string): Promise<string> {
   return transcript;
 }
 
+const WHISPER_API_LIMIT_BYTES = 25 * 1024 * 1024; // OpenAI Whisper API cap
+
+async function compressAudioForWhisperApi(audioPath: string): Promise<string> {
+  const compressedPath = audioPath.replace(/\.m4a$/, "_compressed.m4a");
+  console.log(
+    `[ffmpeg] Audio exceeds 25MB Whisper API cap — compressing to 32kbps mono @ 16kHz...`
+  );
+  const proc = Deno.run({
+    cmd: [
+      "ffmpeg", "-y", "-i", audioPath,
+      "-ac", "1", "-ar", "16000", "-b:a", "32k", "-c:a", "aac",
+      compressedPath,
+    ],
+    stdout: "piped",
+    stderr: "piped",
+  });
+  const result = await proc.status();
+  if (!result.success) {
+    const err = new TextDecoder().decode(await proc.stderrOutput());
+    throw new Error(`ffmpeg compression failed: ${err}`);
+  }
+  const stat = await Deno.stat(compressedPath);
+  console.log(`[ffmpeg] ✓ Compressed to ${(stat.size / 1024 / 1024).toFixed(1)}MB`);
+  return compressedPath;
+}
+
 async function transcribeWithWhisperAPI(
   audioPath: string,
   openaiKey: string
@@ -253,7 +280,13 @@ async function transcribeWithWhisperAPI(
     `[Whisper API] Transcribing via OpenAI (this may take a while)...`
   );
 
-  const audioBuffer = await Deno.readFile(audioPath);
+  let uploadPath = audioPath;
+  const stat = await Deno.stat(audioPath);
+  if (stat.size > WHISPER_API_LIMIT_BYTES) {
+    uploadPath = await compressAudioForWhisperApi(audioPath);
+  }
+
+  const audioBuffer = await Deno.readFile(uploadPath);
   const formData = new FormData();
   formData.append("file", new Blob([audioBuffer], { type: "audio/mp4" }), `audio_${Date.now()}.m4a`);
   formData.append("model", "whisper-1");
@@ -280,6 +313,7 @@ async function transcribeWithWhisperAPI(
 
   // Cleanup
   await Deno.remove(audioPath).catch(() => {});
+  if (uploadPath !== audioPath) await Deno.remove(uploadPath).catch(() => {});
 
   return transcript;
 }
@@ -352,7 +386,7 @@ async function postToYoutubeIngest(
         transcript,
         transcript_format: "vtt",
         force,
-        tags: ["from-script", "whisper-fallback"],
+        tags: Deno.args.filter((_, i) => Deno.args[i - 1] === "--tag"),
       }),
     }
   );
