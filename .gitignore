@@ -35,6 +35,7 @@ reference/
 # Claude Code local state
 # ============================================================
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # ============================================================
 # Node (if any ad-hoc scripts appear at the factory root)

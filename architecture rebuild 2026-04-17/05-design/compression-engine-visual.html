@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Compression Engine — Edmund Mitchell</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'monospace'],
+      },
+      colors: {
+        border:     'hsl(var(--border))',
+        input:      'hsl(var(--input))',
+        ring:       'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary:    { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+        secondary:  { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
+        muted:      { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
+        accent:     { DEFAULT: 'hsl(var(--accent))', foreground: 'hsl(var(--accent-foreground))' },
+        card:       { DEFAULT: 'hsl(var(--card))', foreground: 'hsl(var(--card-foreground))' },
+        brand:   { red: '#FF4100', orange: '#FF6B35' },
+        sanity:  { blue: '#0084FF', yellow: '#FFEA00', green: '#00C853', cyan: '#00BCD4', purple: '#9C6AFF', magenta: '#FF00FF' },
+      },
+      borderRadius: {
+        lg:   'var(--radius)',
+        md:   'calc(var(--radius) - 2px)',
+        sm:   'calc(var(--radius) - 4px)',
+        full: '9999px',
+      },
+    }
+  }
+}
+</script>
+<style>
+  :root {
+    --background:          0 0% 4.3%;
+    --foreground:          0 0% 100%;
+    --card:                0 0% 7.8%;
+    --card-foreground:     0 0% 100%;
+    --popover:             0 0% 7.8%;
+    --popover-foreground:  0 0% 100%;
+    --primary:             15 100% 50%;
+    --primary-foreground:  0 0% 4.3%;
+    --secondary:           0 0% 13.3%;
+    --secondary-foreground:0 0% 100%;
+    --muted:               0 0% 10.6%;
+    --muted-foreground:    0 0% 60%;
+    --accent:              0 0% 10.6%;
+    --accent-foreground:   0 0% 100%;
+    --border:              0 0% 16.5%;
+    --input:               0 0% 16.5%;
+    --ring:                15 100% 50%;
+    --radius:              0.1875rem;
+  }
+  *, *::before, *::after { -webkit-font-smoothing: antialiased; }
+  body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+  .dot-grid {
+    background-image: radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .text-gradient {
+    background: linear-gradient(135deg, #fff 0%, #666 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .stage-connector {
+    position: relative;
+  }
+  .stage-connector::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -1.5rem;
+    width: 1.5rem;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(255,255,255,0.25), rgba(255,255,255,0));
+  }
+  @media (max-width: 1024px) {
+    .stage-connector::after { display: none; }
+  }
+</style>
+</head>
+<body class="bg-background text-foreground min-h-screen">
+
+  <!-- ============================================== -->
+  <!-- HERO                                           -->
+  <!-- ============================================== -->
+  <section class="relative overflow-hidden border-b border-border">
+    <div class="absolute inset-0 dot-grid opacity-60"></div>
+    <div class="relative max-w-6xl mx-auto px-6 py-28 lg:py-36">
+      <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-6">
+        The Compression Engine
+      </span>
+      <h1 class="text-[clamp(2.75rem,6.5vw,5.5rem)] font-extrabold tracking-[-0.03em] leading-[0.95] max-w-5xl">
+        <span class="text-gradient">Most people have a</span><br>
+        <span class="text-gradient">second brain.</span><br>
+        <span class="text-foreground">This is a third.</span>
+      </h1>
+      <p class="mt-8 text-lg lg:text-xl text-muted-foreground max-w-2xl leading-relaxed">
+        An AI system that watches your knowledge pile grow — voice memos, Notion pages, transcripts, Kindle highlights — and compresses it into canonical IP docs that sound like you because they're reading you.
+      </p>
+      <div class="mt-10 flex flex-wrap items-center gap-3">
+        <a href="#how" class="inline-flex items-center gap-2 bg-primary hover:brightness-110 transition-all rounded-full px-6 py-3 text-sm font-semibold text-primary-foreground">
+          See how it works
+          <i data-lucide="arrow-right" class="size-4"></i>
+        </a>
+        <a href="#unlock" class="inline-flex items-center gap-2 border border-border hover:border-border/60 hover:bg-accent/40 transition-all rounded-full px-6 py-3 text-sm font-semibold text-foreground">
+          What it unlocks
+        </a>
+      </div>
+
+      <!-- hero stat strip -->
+      <div class="mt-20 grid grid-cols-2 lg:grid-cols-4 gap-px bg-border rounded-lg overflow-hidden border border-border">
+        <div class="bg-card px-6 py-5">
+          <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Corpus</div>
+          <div class="mt-2 text-2xl font-bold tracking-tight">13,612 <span class="text-muted-foreground text-base font-normal">rows</span></div>
+        </div>
+        <div class="bg-card px-6 py-5">
+          <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Sources</div>
+          <div class="mt-2 text-2xl font-bold tracking-tight">8 <span class="text-muted-foreground text-base font-normal">types</span></div>
+        </div>
+        <div class="bg-card px-6 py-5">
+          <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Agents</div>
+          <div class="mt-2 text-2xl font-bold tracking-tight">5 <span class="text-muted-foreground text-base font-normal">specialists</span></div>
+        </div>
+        <div class="bg-card px-6 py-5">
+          <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Canonical IP</div>
+          <div class="mt-2 text-2xl font-bold tracking-tight">live <span class="text-muted-foreground text-base font-normal">& growing</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- THE PROBLEM                                    -->
+  <!-- ============================================== -->
+  <section class="border-b border-border">
+    <div class="max-w-6xl mx-auto px-6 py-24 lg:py-32">
+      <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-4">
+        The Problem
+      </span>
+      <h2 class="text-[clamp(1.75rem,3.5vw,3rem)] font-extrabold tracking-[-0.02em] leading-[1.05] max-w-4xl">
+        Your knowledge is stored.<br>
+        <span class="text-muted-foreground">It's not synthesized.</span>
+      </h2>
+      <p class="mt-6 text-base lg:text-lg text-muted-foreground leading-relaxed max-w-3xl">
+        Every creator has the same problem. Ten years of notes in Notion. A folder of voice memos on your phone. A stack of Kindle highlights. A couple hundred YouTube transcripts you've studied. A brand bible you wrote once and haven't opened in six months.
+      </p>
+      <p class="mt-4 text-base lg:text-lg text-muted-foreground leading-relaxed max-w-3xl">
+        Somewhere in that pile is <span class="text-foreground font-medium">your actual thinking</span> — the frameworks you've coined, the pillar quotes you keep reaching for, the positioning lines that are genuinely yours. But when you sit down to write the next thing, you start from scratch anyway.
+      </p>
+
+      <div class="mt-14 grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-card border border-border rounded-lg p-5 hover:border-border/60 transition-colors">
+          <i data-lucide="mic" class="size-5 text-sanity-cyan"></i>
+          <div class="mt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Voice memos</div>
+          <div class="mt-1 text-sm font-semibold">Dictated ideas</div>
+          <div class="mt-1 text-xs text-muted-foreground">scattered across devices</div>
+        </div>
+        <div class="bg-card border border-border rounded-lg p-5 hover:border-border/60 transition-colors">
+          <i data-lucide="file-text" class="size-5 text-sanity-blue"></i>
+          <div class="mt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Notion</div>
+          <div class="mt-1 text-sm font-semibold">Half-baked ideas</div>
+          <div class="mt-1 text-xs text-muted-foreground">buried in databases</div>
+        </div>
+        <div class="bg-card border border-border rounded-lg p-5 hover:border-border/60 transition-colors">
+          <i data-lucide="youtube" class="size-5 text-sanity-magenta"></i>
+          <div class="mt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">YouTube</div>
+          <div class="mt-1 text-sm font-semibold">Studied transcripts</div>
+          <div class="mt-1 text-xs text-muted-foreground">watched once, forgotten</div>
+        </div>
+        <div class="bg-card border border-border rounded-lg p-5 hover:border-border/60 transition-colors">
+          <i data-lucide="book-open" class="size-5 text-sanity-yellow"></i>
+          <div class="mt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Highlights</div>
+          <div class="mt-1 text-sm font-semibold">Kindle + PDF</div>
+          <div class="mt-1 text-xs text-muted-foreground">never synthesized</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- HOW IT WORKS — 3 STAGES                        -->
+  <!-- ============================================== -->
+  <section id="how" class="border-b border-border">
+    <div class="max-w-6xl mx-auto px-6 py-24 lg:py-32">
+      <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-4">
+        How it works
+      </span>
+      <h2 class="text-[clamp(1.75rem,3.5vw,3rem)] font-extrabold tracking-[-0.02em] leading-[1.05] max-w-4xl">
+        Three stages.<br>
+        <span class="text-muted-foreground">Capture, scan, canonize.</span>
+      </h2>
+
+      <div class="mt-16 grid lg:grid-cols-3 gap-6">
+
+        <!-- STAGE 1 -->
+        <div class="stage-connector bg-card border border-border rounded-lg p-8 relative">
+          <div class="flex items-center justify-between mb-6">
+            <span class="font-mono text-[10px] uppercase tracking-[0.1em] text-sanity-cyan">Stage 01</span>
+            <i data-lucide="database" class="size-5 text-sanity-cyan"></i>
+          </div>
+          <h3 class="text-xl font-bold tracking-tight">Capture</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            Everything you say or save lands in one database. Each piece gets converted into a vector — a mathematical fingerprint of meaning — so the system knows what's close to what, regardless of folder or tag.
+          </p>
+          <ul class="mt-6 space-y-2.5 text-xs text-muted-foreground">
+            <li class="flex items-start gap-2"><i data-lucide="check" class="size-3.5 mt-0.5 text-sanity-green shrink-0"></i>iPhone Shortcut + voice memo</li>
+            <li class="flex items-start gap-2"><i data-lucide="check" class="size-3.5 mt-0.5 text-sanity-green shrink-0"></i>URL bookmarklet</li>
+            <li class="flex items-start gap-2"><i data-lucide="check" class="size-3.5 mt-0.5 text-sanity-green shrink-0"></i>Notion database sync</li>
+            <li class="flex items-start gap-2"><i data-lucide="check" class="size-3.5 mt-0.5 text-sanity-green shrink-0"></i>YouTube + PDF + file upload</li>
+            <li class="flex items-start gap-2"><i data-lucide="check" class="size-3.5 mt-0.5 text-sanity-green shrink-0"></i>Agent chat captures</li>
+          </ul>
+        </div>
+
+        <!-- STAGE 2 -->
+        <div class="stage-connector bg-card border border-border rounded-lg p-8 relative">
+          <div class="flex items-center justify-between mb-6">
+            <span class="font-mono text-[10px] uppercase tracking-[0.1em] text-sanity-purple">Stage 02</span>
+            <i data-lucide="cpu" class="size-5 text-sanity-purple"></i>
+          </div>
+          <h3 class="text-xl font-bold tracking-tight">Scan</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            Every night and every week a small team of agents goes to work on the pile. They cluster, contradict, research, draft, and gate — each with a defined job.
+          </p>
+          <ul class="mt-6 space-y-2.5 text-xs text-muted-foreground">
+            <li class="flex items-start gap-2"><i data-lucide="git-branch" class="size-3.5 mt-0.5 text-sanity-purple shrink-0"></i>Semantic clustering nightly</li>
+            <li class="flex items-start gap-2"><i data-lucide="git-branch" class="size-3.5 mt-0.5 text-sanity-purple shrink-0"></i>Cross-silo connection scan</li>
+            <li class="flex items-start gap-2"><i data-lucide="git-branch" class="size-3.5 mt-0.5 text-sanity-purple shrink-0"></i>Contradiction detection</li>
+            <li class="flex items-start gap-2"><i data-lucide="git-branch" class="size-3.5 mt-0.5 text-sanity-purple shrink-0"></i>Outbound research fetch</li>
+            <li class="flex items-start gap-2"><i data-lucide="git-branch" class="size-3.5 mt-0.5 text-sanity-purple shrink-0"></i>Permanent-gate consensus review</li>
+          </ul>
+        </div>
+
+        <!-- STAGE 3 -->
+        <div class="bg-card border border-border rounded-lg p-8">
+          <div class="flex items-center justify-between mb-6">
+            <span class="font-mono text-[10px] uppercase tracking-[0.1em] text-primary">Stage 03</span>
+            <i data-lucide="book-marked" class="size-5 text-primary"></i>
+          </div>
+          <h3 class="text-xl font-bold tracking-tight">Canonical IP</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            Surviving drafts become canon. A compressed essay in your voice, naming your references, quoting your pillar lines, showing how your frameworks connect. Living — as new captures land, the doc refreshes.
+          </p>
+          <ul class="mt-6 space-y-2.5 text-xs text-muted-foreground">
+            <li class="flex items-start gap-2"><i data-lucide="sparkle" class="size-3.5 mt-0.5 text-primary shrink-0"></i>Your voice, your references</li>
+            <li class="flex items-start gap-2"><i data-lucide="sparkle" class="size-3.5 mt-0.5 text-primary shrink-0"></i>Versioned + editable</li>
+            <li class="flex items-start gap-2"><i data-lucide="sparkle" class="size-3.5 mt-0.5 text-primary shrink-0"></i>Embedded back into memory</li>
+            <li class="flex items-start gap-2"><i data-lucide="sparkle" class="size-3.5 mt-0.5 text-primary shrink-0"></i>Read by every agent you run</li>
+            <li class="flex items-start gap-2"><i data-lucide="sparkle" class="size-3.5 mt-0.5 text-primary shrink-0"></i>The substrate for content</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- MEET THE AGENTS                                -->
+  <!-- ============================================== -->
+  <section class="border-b border-border">
+    <div class="max-w-6xl mx-auto px-6 py-24 lg:py-32">
+      <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-4">
+        The Agents
+      </span>
+      <h2 class="text-[clamp(1.75rem,3.5vw,3rem)] font-extrabold tracking-[-0.02em] leading-[1.05] max-w-4xl">
+        Five specialists.<br>
+        <span class="text-muted-foreground">Each with one job.</span>
+      </h2>
+
+      <div class="mt-14 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-10 rounded-full bg-sanity-purple/10 flex items-center justify-center">
+              <i data-lucide="layout-grid" class="size-5 text-sanity-purple"></i>
+            </div>
+            <div>
+              <div class="font-bold tracking-tight">Feynman</div>
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Research director</div>
+            </div>
+          </div>
+          <p class="mt-5 text-sm text-muted-foreground leading-relaxed">
+            Clusters the captures by meaning. Flags the dense neighborhoods that recur across silos. Writes emergent themes into the backlog.
+          </p>
+          <div class="mt-5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-2">
+            <i data-lucide="clock" class="size-3"></i> runs: daily + weekly
+          </div>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-10 rounded-full bg-sanity-magenta/10 flex items-center justify-center">
+              <i data-lucide="swords" class="size-5 text-sanity-magenta"></i>
+            </div>
+            <div>
+              <div class="font-bold tracking-tight">Kontra</div>
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Contradiction agent</div>
+            </div>
+          </div>
+          <p class="mt-5 text-sm text-muted-foreground leading-relaxed">
+            Looks for contradictions in the pile. Places where your newer thinking rebuts your older thinking. Surfaces tensions worth resolving.
+          </p>
+          <div class="mt-5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-2">
+            <i data-lucide="clock" class="size-3"></i> runs: weekly
+          </div>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-10 rounded-full bg-sanity-blue/10 flex items-center justify-center">
+              <i data-lucide="telescope" class="size-5 text-sanity-blue"></i>
+            </div>
+            <div>
+              <div class="font-bold tracking-tight">Sophia</div>
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Researcher</div>
+            </div>
+          </div>
+          <p class="mt-5 text-sm text-muted-foreground leading-relaxed">
+            Pulls outbound research to back up what you've been exploring. Citations, counter-arguments, primary sources. Turns a hunch into a grounded brief.
+          </p>
+          <div class="mt-5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-2">
+            <i data-lucide="clock" class="size-3"></i> runs: on demand
+          </div>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-10 rounded-full bg-sanity-yellow/10 flex items-center justify-center">
+              <i data-lucide="pen-line" class="size-5 text-sanity-yellow"></i>
+            </div>
+            <div>
+              <div class="font-bold tracking-tight">Augustin</div>
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">IP specialist</div>
+            </div>
+          </div>
+          <p class="mt-5 text-sm text-muted-foreground leading-relaxed">
+            Takes the densest, most coherent clusters and drafts them into a single compressed framework doc. Your voice, your references, your frameworks connected.
+          </p>
+          <div class="mt-5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-2">
+            <i data-lucide="clock" class="size-3"></i> runs: on demand
+          </div>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="size-10 rounded-full bg-sanity-green/10 flex items-center justify-center">
+              <i data-lucide="shield-check" class="size-5 text-sanity-green"></i>
+            </div>
+            <div>
+              <div class="font-bold tracking-tight">Kairos</div>
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Permanent gate</div>
+            </div>
+          </div>
+          <p class="mt-5 text-sm text-muted-foreground leading-relaxed">
+            Convenes three LLM reviewers with different temperatures. They vote promote / hold / reject. Only drafts that survive the gate get stamped as canon.
+          </p>
+          <div class="mt-5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-2">
+            <i data-lucide="clock" class="size-3"></i> runs: on demand
+          </div>
+        </div>
+
+        <div class="bg-card border border-dashed border-border/50 rounded-lg p-7 flex items-center">
+          <div>
+            <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Coming</div>
+            <div class="mt-2 text-sm font-medium text-muted-foreground leading-relaxed">
+              Atomic-draft rewriter. Pain-point clusterer. Double-down selector.
+            </div>
+            <div class="mt-4 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground flex items-center gap-2">
+              <i data-lucide="plus" class="size-3"></i> specialists spawn as volume earns them
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- FLOW DIAGRAM                                   -->
+  <!-- ============================================== -->
+  <section class="border-b border-border bg-muted/30">
+    <div class="max-w-6xl mx-auto px-6 py-24 lg:py-32">
+      <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-4">
+        The flow
+      </span>
+      <h2 class="text-[clamp(1.75rem,3.5vw,3rem)] font-extrabold tracking-[-0.02em] leading-[1.05] max-w-4xl mb-14">
+        Raw capture → canon.
+      </h2>
+
+      <div class="bg-card border border-border rounded-lg p-6 lg:p-10">
+        <div class="grid grid-cols-1 lg:grid-cols-7 gap-4 items-center">
+
+          <!-- Left: inputs -->
+          <div class="lg:col-span-2 space-y-2">
+            <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-3">Inputs</div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="mic" class="size-3.5 text-sanity-cyan"></i> Voice memo
+            </div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="file-text" class="size-3.5 text-sanity-blue"></i> Notion page
+            </div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="youtube" class="size-3.5 text-sanity-magenta"></i> YouTube
+            </div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="book-open" class="size-3.5 text-sanity-yellow"></i> PDF + highlights
+            </div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="message-square" class="size-3.5 text-sanity-purple"></i> Agent chat
+            </div>
+          </div>
+
+          <!-- Arrow -->
+          <div class="lg:col-span-1 flex justify-center py-4 lg:py-0">
+            <i data-lucide="arrow-right" class="size-5 text-muted-foreground rotate-90 lg:rotate-0"></i>
+          </div>
+
+          <!-- Middle: memory -->
+          <div class="lg:col-span-1">
+            <div class="bg-background border border-border rounded-lg p-5 text-center">
+              <i data-lucide="database" class="size-6 text-primary mx-auto"></i>
+              <div class="mt-3 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Memory</div>
+              <div class="mt-1 text-xs font-semibold">13,612 vectors</div>
+              <div class="mt-1 text-[10px] text-muted-foreground">pgvector</div>
+            </div>
+          </div>
+
+          <!-- Arrow -->
+          <div class="lg:col-span-1 flex justify-center py-4 lg:py-0">
+            <i data-lucide="arrow-right" class="size-5 text-muted-foreground rotate-90 lg:rotate-0"></i>
+          </div>
+
+          <!-- Right: outputs -->
+          <div class="lg:col-span-2 space-y-2">
+            <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-3">Outputs</div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="layout-grid" class="size-3.5 text-sanity-purple"></i> Themes
+            </div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="link" class="size-3.5 text-sanity-blue"></i> Connections
+            </div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="swords" class="size-3.5 text-sanity-magenta"></i> Tensions
+            </div>
+            <div class="bg-background border border-border rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="map" class="size-3.5 text-sanity-cyan"></i> IP Map
+            </div>
+            <div class="bg-primary/10 border border-primary/30 rounded-lg px-3 py-2 flex items-center gap-2 text-xs">
+              <i data-lucide="book-marked" class="size-3.5 text-primary"></i>
+              <span class="text-foreground font-semibold">Canonical IP</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Bottom: agents row -->
+        <div class="mt-10 pt-8 border-t border-border">
+          <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-4 text-center">The agents operating on memory</div>
+          <div class="flex flex-wrap justify-center gap-3">
+            <div class="flex items-center gap-2 bg-background border border-border rounded-full px-3 py-1.5 text-xs">
+              <span class="size-1.5 rounded-full bg-sanity-purple"></span> Feynman
+            </div>
+            <div class="flex items-center gap-2 bg-background border border-border rounded-full px-3 py-1.5 text-xs">
+              <span class="size-1.5 rounded-full bg-sanity-magenta"></span> Kontra
+            </div>
+            <div class="flex items-center gap-2 bg-background border border-border rounded-full px-3 py-1.5 text-xs">
+              <span class="size-1.5 rounded-full bg-sanity-blue"></span> Sophia
+            </div>
+            <div class="flex items-center gap-2 bg-background border border-border rounded-full px-3 py-1.5 text-xs">
+              <span class="size-1.5 rounded-full bg-sanity-yellow"></span> Augustin
+            </div>
+            <div class="flex items-center gap-2 bg-background border border-border rounded-full px-3 py-1.5 text-xs">
+              <span class="size-1.5 rounded-full bg-sanity-green"></span> Kairos
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- WHAT IT UNLOCKS                                -->
+  <!-- ============================================== -->
+  <section id="unlock" class="border-b border-border">
+    <div class="max-w-6xl mx-auto px-6 py-24 lg:py-32">
+      <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-4">
+        What it unlocks
+      </span>
+      <h2 class="text-[clamp(1.75rem,3.5vw,3rem)] font-extrabold tracking-[-0.02em] leading-[1.05] max-w-4xl">
+        Five things that don't happen<br>
+        <span class="text-muted-foreground">with a second brain alone.</span>
+      </h2>
+
+      <div class="mt-14 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="size-10 rounded-full bg-sanity-green/10 flex items-center justify-center mb-5">
+            <i data-lucide="brain" class="size-5 text-sanity-green"></i>
+          </div>
+          <h3 class="text-lg font-bold tracking-tight">You stop forgetting what you think</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            The framework you had in March is still here in November — refined, connected to the three books you read in between.
+          </p>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="size-10 rounded-full bg-sanity-blue/10 flex items-center justify-center mb-5">
+            <i data-lucide="refresh-cw" class="size-5 text-sanity-blue"></i>
+          </div>
+          <h3 class="text-lg font-bold tracking-tight">You stop restarting from scratch</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            You update the canonical doc. You don't rebuild it. Every new capture strengthens the canon instead of scattering it.
+          </p>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="size-10 rounded-full bg-sanity-purple/10 flex items-center justify-center mb-5">
+            <i data-lucide="users" class="size-5 text-sanity-purple"></i>
+          </div>
+          <h3 class="text-lg font-bold tracking-tight">Your agents become multipliers</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            Content, outreach, drafts, decks — all pulled from canon, not generic LLM vibes. Volume goes up. Voice stays true.
+          </p>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="size-10 rounded-full bg-sanity-magenta/10 flex items-center justify-center mb-5">
+            <i data-lucide="shuffle" class="size-5 text-sanity-magenta"></i>
+          </div>
+          <h3 class="text-lg font-bold tracking-tight">Cross-silo creativity becomes automatic</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            The Von Hildebrand × Will Storr × Julia Galef connection you couldn't have stitched by hand — the engine finds it and names it for you.
+          </p>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="size-10 rounded-full bg-sanity-yellow/10 flex items-center justify-center mb-5">
+            <i data-lucide="map" class="size-5 text-sanity-yellow"></i>
+          </div>
+          <h3 class="text-lg font-bold tracking-tight">You get an IP map</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            A living snapshot of what you've authored, what you've hinted at, what your audience is asking for, and where the gaps are.
+          </p>
+        </div>
+
+        <div class="bg-card border border-border rounded-lg p-7 hover:border-border/60 transition-colors">
+          <div class="size-10 rounded-full bg-primary/10 flex items-center justify-center mb-5">
+            <i data-lucide="trending-up" class="size-5 text-primary"></i>
+          </div>
+          <h3 class="text-lg font-bold tracking-tight">The system compounds with use</h3>
+          <p class="mt-3 text-sm text-muted-foreground leading-relaxed">
+            More capture → tighter themes → sharper skills → more varied drafts → better metrics → more time to capture. Exponential, not linear.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- CANONICAL IP DEEP DIVE                         -->
+  <!-- ============================================== -->
+  <section class="border-b border-border">
+    <div class="max-w-6xl mx-auto px-6 py-24 lg:py-32">
+      <div class="grid lg:grid-cols-2 gap-16 items-start">
+
+        <div>
+          <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-4">
+            A canonical IP doc
+          </span>
+          <h2 class="text-[clamp(1.75rem,3.5vw,3rem)] font-extrabold tracking-[-0.02em] leading-[1.05]">
+            Not a note.<br>
+            <span class="text-muted-foreground">A compressed essay.</span>
+          </h2>
+          <p class="mt-6 text-base text-muted-foreground leading-relaxed">
+            In your voice. Naming your references. Quoting your pillar lines. Showing how your frameworks connect. Living — as new captures land, it refreshes.
+          </p>
+          <p class="mt-4 text-base text-muted-foreground leading-relaxed">
+            And the part nobody tells you: once these docs exist, <span class="text-foreground font-medium">every agent you run can read them</span>. Your chat assistant, your content strategist, your client-ops agent — none of them are speaking from generic LLM vibes anymore. They speak from your compressed thinking. They sound like you because they're reading you.
+          </p>
+          <div class="mt-8 space-y-3">
+            <div class="flex items-center gap-3 text-sm">
+              <i data-lucide="check-circle-2" class="size-4 text-sanity-green shrink-0"></i>
+              <span>Survives a 3-reviewer consensus vote before becoming canon</span>
+            </div>
+            <div class="flex items-center gap-3 text-sm">
+              <i data-lucide="check-circle-2" class="size-4 text-sanity-green shrink-0"></i>
+              <span>Versioned — every edit bumps and stamps</span>
+            </div>
+            <div class="flex items-center gap-3 text-sm">
+              <i data-lucide="check-circle-2" class="size-4 text-sanity-green shrink-0"></i>
+              <span>Fed back into memory so agents retrieve it semantically</span>
+            </div>
+            <div class="flex items-center gap-3 text-sm">
+              <i data-lucide="check-circle-2" class="size-4 text-sanity-green shrink-0"></i>
+              <span>Editable any time — canon isn't frozen, it compounds</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mock doc -->
+        <div class="bg-card border border-border rounded-lg overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-3 border-b border-border bg-muted/40">
+            <div class="flex items-center gap-2">
+              <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-sanity-green/10 text-sanity-green px-2 py-0.5 rounded">● canonical</span>
+              <span class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">v3 · updated 2h ago</span>
+            </div>
+            <i data-lucide="more-horizontal" class="size-4 text-muted-foreground"></i>
+          </div>
+          <div class="p-7">
+            <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Framework</div>
+            <h3 class="mt-2 text-2xl font-bold tracking-tight leading-tight">
+              Cordial Communication Framework
+            </h3>
+            <p class="mt-4 text-sm text-muted-foreground leading-relaxed">
+              The philosophical engine under every piece of content Edmund makes. Integrates Will Storr's character-driven storytelling, Catholic anthropology, and nonviolent communication into a single operating theory.
+            </p>
+            <div class="mt-5 pt-5 border-t border-border">
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-3">Pillar references</div>
+              <div class="flex flex-wrap gap-1.5">
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-accent/60 px-2 py-1 rounded">Von Hildebrand</span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-accent/60 px-2 py-1 rounded">Will Storr</span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-accent/60 px-2 py-1 rounded">Gaudium et Spes §24</span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-accent/60 px-2 py-1 rounded">Cor ad cor loquitur</span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-accent/60 px-2 py-1 rounded">Julia Galef</span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-accent/60 px-2 py-1 rounded">Murray Davis</span>
+                <span class="font-mono text-[10px] uppercase tracking-[0.08em] bg-accent/60 px-2 py-1 rounded">imago Dei</span>
+              </div>
+            </div>
+            <div class="mt-5 pt-5 border-t border-border">
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-3">Sourced from</div>
+              <div class="text-xs text-muted-foreground leading-relaxed">
+                45 memory rows · 4 semantic queries · notion, capture, thought, pdf, csv
+              </div>
+            </div>
+            <div class="mt-5 pt-5 border-t border-border flex items-center gap-2">
+              <div class="size-2 rounded-full bg-sanity-green"></div>
+              <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                Read by 6 agents · referenced in 14 generated artifacts
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================== -->
+  <!-- CLOSING                                        -->
+  <!-- ============================================== -->
+  <section class="relative overflow-hidden">
+    <div class="absolute inset-0 dot-grid opacity-40"></div>
+    <div class="relative max-w-5xl mx-auto px-6 py-28 lg:py-36 text-center">
+      <span class="font-mono text-[11px] uppercase tracking-[0.12em] text-primary block mb-6">
+        The short version
+      </span>
+      <h2 class="text-[clamp(2.25rem,5vw,4.25rem)] font-extrabold tracking-[-0.03em] leading-[0.98]">
+        <span class="text-gradient">Most people have a</span><br>
+        <span class="text-gradient">second brain.</span><br>
+        <span class="text-foreground">This is a third — one that</span><br>
+        <span class="text-foreground">compresses, remembers, and</span><br>
+        <span class="text-foreground">feeds the team doing the work.</span>
+      </h2>
+      <div class="mt-16 pt-10 border-t border-border max-w-md mx-auto">
+        <div class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">Edmund Mitchell</div>
+        <div class="mt-1 text-sm text-muted-foreground">Cordial Creator · Faith & AI Project</div>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.js"></script>
+  <script>lucide.createIcons()</script>
+</body>
+</html>
