@@ -13,6 +13,13 @@
 dashboard/
 
 # ============================================================
+# CEO Cowork canonical home is ~/Documents/Claude/Projects/CEO Cowork/
+# Any copy that lands in factory/ is local working state — never commit.
+# ============================================================
+CEO cowork/
+CEO Cowork/
+
+# ============================================================
 # External / cloned repos and reference material (~1.8GB)
 # Not factory-authored; licensing varies; too big for git.
 # ============================================================

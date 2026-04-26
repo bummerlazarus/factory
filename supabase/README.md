@@ -13,13 +13,13 @@ One of the six target-repo folders (per `01-context/principles.md`). Holds every
 - **Namespaces:** `knowledge`, `conversations`, `content`. Persona namespaces are not used — persona memory lives in `agent_core_memory` / `agent_scratchpad`.
 - **Idempotency:** every write path uses `(source, source_id)` for upsert conflict resolution.
 - **RLS:** enabled on every table. `service_role` bypasses. `authenticated` gets narrow policies.
-- **Migration cadence:** additive migrations (`CREATE`, `ADD COLUMN`, new indexes) can be applied without Edmund's explicit per-epic approval (see `../architecture rebuild 2026-04-17/06-handoffs/autonomy-charter.md`). Destructive migrations require approval.
+- **Migration cadence:** additive migrations (`CREATE`, `ADD COLUMN`, new indexes) can be applied without Edmund's explicit per-epic approval (see `../architecture-rebuild-2026-04-17/06-handoffs/autonomy-charter.md`). Destructive migrations require approval.
 
 ## Current Edge Functions
 
 _None yet deployed to Supabase — the project has zero Edge Functions as of 2026-04-17._
 
-Planned (see `../architecture rebuild 2026-04-17/06-handoffs/backlog.md`):
+Planned (see `../architecture-rebuild-2026-04-17/06-handoffs/backlog.md`):
 - `capture` — W2.1
 - `ingest-youtube` — W4.4
 - `ingest-signals` — W4.5

@@ -5,9 +5,9 @@
  * One-shot migration script — Pinecone `gravity-claw` index → Supabase `public.memory`.
  *
  * Phase: 2 (pgvector consolidation) — see
- *   architecture rebuild 2026-04-17/03-decisions/decisions-log.md
- *   architecture rebuild 2026-04-17/04-audit/2026-04-17-q2-vector-strategy-memo.md
- *   architecture rebuild 2026-04-17/05-design/phase-2-migrations/README.md
+ *   architecture-rebuild-2026-04-17/03-decisions/decisions-log.md
+ *   architecture-rebuild-2026-04-17/04-audit/2026-04-17-q2-vector-strategy-memo.md
+ *   architecture-rebuild-2026-04-17/05-design/phase-2-migrations/README.md
  *
  * What it does:
  *   1. Lists namespaces in Pinecone `gravity-claw` via the REST API.

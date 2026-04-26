@@ -2,12 +2,17 @@
 
 This is Edmund's top-level working directory. It contains the in-progress rebuild of his personal/work AI stack, plus research and reference material.
 
+> **Read this first: `~/Documents/Claude/Projects/CEO Cowork/00-SYSTEM-INDEX.md`.** That doc is the operating map for Edmund's whole stack — where memory lives, where skills live, where outputs go, what fires when. Anything structural that changes in factory/ should be reflected in its Changelog. If you're unsure where something belongs, check the index before guessing.
+
 ## Where things live
 
 | Path | What |
 |---|---|
-| `architecture-rebuild-2026-04-17/` | **Current focus.** Living notebook for the rebuild. Start here. |
+| `architecture-rebuild-2026-04-17/` | Stack rebuild notebook. **Pruned 2026-04-24** to active set; historical content under `archive/`. Read its `00-README.md` for layout. |
 | `dashboard/` | Sister repo ([bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)) cloned into `./dashboard/` and gitignored here. Supabase migration in progress at `dashboard/docs/superpowers/plans/2026-04-17-supabase-migration.md`. |
+| `ops/bin/` | Ingest scripts. Every script writes to Supabase `public.ingest_runs` (migration 017) so failures are debuggable. |
+| `supabase/migrations/` | Numbered SQL migrations. Latest: `017_create_ingest_runs.sql` (2026-04-24). |
+| `skills/` | Working subset of SKILL.md files. **Not** the source of truth — see Skills section below. |
 | `research/` | External reference material and cloned repos (read-only). `tool-guides/` has 20+ overview docs; `reference-repos/OB1-main/` for OB-1 patterns. |
 | `gravityclaw/` | (external: `/Users/edmundmitchell/gravityclaw/`) Legacy custom MCP server, slated for retirement. Read-only. |
 
@@ -17,8 +22,9 @@ Read `architecture-rebuild-2026-04-17/00-README.md` first. That folder is a livi
 
 The rebuild retires GravityClaw (custom Railway MCP) and moves to:
 - Claude-native features (scheduled tasks, Skills, Projects)
-- Native MCPs (Supabase, Pinecone, Notion, Firecrawl, Vercel)
+- Native MCPs (Supabase, Notion, Firecrawl, Vercel)
 - Supabase Edge Functions for unique business logic
+- Single-table pgvector store at `public.memory` (replaced Pinecone)
 
 Wave 10 compression engine shipped 2026-04-19 (commit `a519da3` on `feat/compression-engine`). Architecture spec: `dashboard/docs/compression-engine.md`.
 
@@ -43,6 +49,13 @@ For ingesting large bodies (transcripts, articles, PDFs) into Supabase, use the 
 | `ops/bin/ingest-youtube.sh <url> [--force] [--tags a,b]` | YouTube ingests (any length) |
 
 The `youtube-ingest-mcp` MCP tool exists but is only safe for tiny clips. Full-length videos must go through the script. Same pattern applies to future ingest paths.
+
+**Every ingest script writes to `public.ingest_runs`.** Run ID is printed to stdout. To inspect the last 20 runs:
+```sql
+SELECT started_at, status, source_title, items_processed, error_message
+FROM public.ingest_runs ORDER BY started_at DESC LIMIT 20;
+```
+Any new ingest pipeline (article, PDF, transcript) MUST follow this pattern — insert at start, update at end with status/counts/error.
 
 ## Working style
 

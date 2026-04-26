@@ -7,13 +7,13 @@ Edmund's top-level working directory — the in-progress rebuild of the personal
 | Path | What |
 |---|---|
 | `CLAUDE.md` | Project instructions for Claude Code (read first). |
-| `architecture rebuild 2026-04-17/` | Living notebook driving the rebuild. Start at `00-README.md`. |
+| `architecture-rebuild-2026-04-17/` | Living notebook driving the rebuild. Start at `00-README.md`. |
 | `ops/` | Thin ops scripts (youtube ingest, env example). `.env` is gitignored. |
 | `skills/` | Shared skill definitions (daily-recap, etc.). |
 | `supabase/` | Factory-root Supabase artifacts (migrations + shared Edge Function helpers). |
 | `.claude/launch.json` | Claude Code dev-server launch config. |
 | `dashboard/` | **Not in this repo** — see below. |
-| `reference/` | **Not in this repo** — ~1.8 GB of cloned external repos. |
+| `reference/` | Present locally but gitignored — ~1.8 GB of cloned external repos (licensing varies, not factory-authored). |
 
 ## Sister repo: dashboard
 
@@ -99,9 +99,9 @@ Claude Code auto-memory lives at `~/.claude/projects/-Users-<you>-factory/memory
 Start here:
 
 - `CLAUDE.md` (this repo's project instructions)
-- `architecture rebuild 2026-04-17/00-README.md`
-- `architecture rebuild 2026-04-17/06-handoffs/autonomy-charter.md` (rules of engagement for autonomous runs)
-- Most recent handoff in `architecture rebuild 2026-04-17/06-handoffs/` (filename starts with today's date or the most recent one)
+- `architecture-rebuild-2026-04-17/00-README.md`
+- `architecture-rebuild-2026-04-17/06-handoffs/autonomy-charter.md` (rules of engagement for autonomous runs)
+- Most recent handoff in `architecture-rebuild-2026-04-17/06-handoffs/` (filename starts with today's date or the most recent one)
 
 ---
 
@@ -117,4 +117,4 @@ Start here:
 - Firecrawl is the primary web research tool.
 - Never use `browser_subagent` — crashes the system.
 
-See `CLAUDE.md` for the full project rules and `architecture rebuild 2026-04-17/06-handoffs/autonomy-charter.md` for autonomous-run rules of engagement.
+See `CLAUDE.md` for the full project rules and `architecture-rebuild-2026-04-17/06-handoffs/autonomy-charter.md` for autonomous-run rules of engagement.
