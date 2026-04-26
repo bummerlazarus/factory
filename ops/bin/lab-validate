@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+"""
+lab-validate — sanity-check every _meta.yaml in the EM Research Lab folder.
+
+Walks the lab tree, reads every _meta.yaml, enforces required fields, blocks
+docs that should have source_refs but don't. Exit code 0 = clean, nonzero = at
+least one violation.
+
+Designed to be installed as a git pre-commit hook in the em-research-lab repo:
+    cp ops/bin/lab-validate ~/Documents/Claude/Projects/EM Research Lab/.git/hooks/pre-commit
+    chmod +x ~/Documents/Claude/Projects/EM Research Lab/.git/hooks/pre-commit
+
+Usage:
+    lab-validate [PATH]            # default: ~/Documents/Claude/Projects/EM Research Lab/
+    lab-validate --json            # machine-readable output for the dashboard
+
+See: ~/Documents/Claude/Projects/Claude Bootstrapper/context/previous-setups/em-research-lab-design.md (Validators & Scripts)
+"""
+from __future__ import annotations
+import argparse, json, os, sys, re
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.stderr.write(
+        "lab-validate: PyYAML is required.\n"
+        "  Install: pip install --user pyyaml  (or: brew install pyyaml)\n"
+    )
+    sys.exit(2)
+
+# ---------------------------------------------------------------------------
+# Rules
+# ---------------------------------------------------------------------------
+
+REQUIRED_FIELDS = {"kind", "status", "created_at", "domains"}
+
+# kinds that REQUIRE source_refs to be a non-empty list
+KINDS_REQUIRING_SOURCE_REFS = {
+    "source-note",
+    "playbook",
+    "landscape-brief",
+    "synthesis-memo",
+}
+
+# kinds that MAY have empty source_refs (definitions, IP, recommendations)
+KINDS_EXEMPT_FROM_SOURCE_REFS = {
+    "reference",
+    "framework",
+    "articulation",
+    "brand-concept",
+    "methodology",
+    "recommendation",
+    "sop",
+    "source-summary",  # the bibliographic registry entry itself
+}
+
+VALID_STATUS = {"current", "draft", "stale", "archived"}
+
+VALID_REVIEW_FREQUENCY = {
+    "quarterly", "annually", "on-new-source", "never", "once"
+}
+
+DEFAULT_LAB_ROOT = Path.home() / "Documents/Claude/Projects/EM Research Lab"
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
+
+def find_meta_files(root: Path) -> list[Path]:
+    """All _meta.yaml files under root, excluding archive/."""
+    out = []
+    for p in root.rglob("_meta.yaml"):
+        # skip archive paths — archived docs aren't subject to live validation
+        if any(part == "archive" for part in p.relative_to(root).parts):
+            continue
+        out.append(p)
+    return out
+
+
+def load_meta(path: Path) -> dict | str:
+    """Load a _meta.yaml; on parse error returns an error string."""
+    try:
+        with path.open() as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            return f"_meta.yaml is not a YAML mapping (got {type(data).__name__})"
+        return data
+    except yaml.YAMLError as e:
+        return f"YAML parse error: {e}"
+    except OSError as e:
+        return f"read error: {e}"
+
+
+def validate_one(path: Path, meta: dict, all_slugs: set[str]) -> list[str]:
+    """Return a list of human-readable violations for this file."""
+    errors: list[str] = []
+
+    # --- required fields -----------------------------------------------------
+    missing = REQUIRED_FIELDS - meta.keys()
+    if missing:
+        errors.append(f"missing required field(s): {sorted(missing)}")
+
+    # --- kind ----------------------------------------------------------------
+    kind = meta.get("kind")
+    if kind is not None and not isinstance(kind, str):
+        errors.append(f"kind must be a string, got {type(kind).__name__}")
+
+    # --- status --------------------------------------------------------------
+    status = meta.get("status")
+    if status is not None and status not in VALID_STATUS:
+        errors.append(f"status={status!r} not in {sorted(VALID_STATUS)}")
+
+    # --- domains: must be a non-empty list -----------------------------------
+    domains = meta.get("domains")
+    if domains is not None:
+        if not isinstance(domains, list):
+            errors.append("domains must be a list")
+        elif len(domains) == 0 and kind not in KINDS_EXEMPT_FROM_SOURCE_REFS:
+            errors.append("domains is empty (set at least one)")
+
+    # --- source_refs ---------------------------------------------------------
+    refs = meta.get("source_refs", [])
+    if refs is None:
+        refs = []
+    if not isinstance(refs, list):
+        errors.append("source_refs must be a list (use [] for none)")
+        refs = []
+
+    if kind in KINDS_REQUIRING_SOURCE_REFS and len(refs) == 0:
+        errors.append(
+            f"source_refs is empty but kind={kind!r} requires it. "
+            "Either (a) populate source_refs with the source slugs that "
+            "informed this doc, or (b) reclassify: if this is your own "
+            "thinking, change kind to 'articulation'/'framework' and move "
+            "to /ip/."
+        )
+
+    # --- review_frequency ----------------------------------------------------
+    rf = meta.get("review_frequency")
+    if rf is not None and rf not in VALID_REVIEW_FREQUENCY:
+        errors.append(
+            f"review_frequency={rf!r} not in {sorted(VALID_REVIEW_FREQUENCY)}"
+        )
+
+    # --- superseded_by -------------------------------------------------------
+    sup = meta.get("superseded_by")
+    if sup not in (None, "null", ""):
+        if not isinstance(sup, str):
+            errors.append("superseded_by must be a slug string or null")
+        elif sup not in all_slugs:
+            errors.append(
+                f"superseded_by={sup!r} does not match any existing doc slug"
+            )
+
+    # --- reviewed_at >= created_at ------------------------------------------
+    ca, ra = meta.get("created_at"), meta.get("reviewed_at")
+    if ca and ra and str(ra) < str(ca):
+        errors.append(f"reviewed_at ({ra}) is older than created_at ({ca})")
+
+    # --- archived rows must have a reason or a superseded_by -----------------
+    if status == "archived" and not (sup or meta.get("archived_reason")):
+        errors.append(
+            "status='archived' requires either superseded_by or archived_reason"
+        )
+
+    return errors
+
+
+def slug_for(path: Path, root: Path) -> str:
+    """Slug = the directory name containing the _meta.yaml (e.g. atlas/documents/foo/_meta.yaml -> foo)."""
+    return path.parent.name
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("path", nargs="?", default=str(DEFAULT_LAB_ROOT),
+                    help=f"lab root (default: {DEFAULT_LAB_ROOT})")
+    ap.add_argument("--json", action="store_true",
+                    help="emit machine-readable JSON instead of human output")
+    args = ap.parse_args()
+
+    root = Path(args.path).expanduser().resolve()
+    if not root.exists():
+        sys.stderr.write(f"lab-validate: lab root does not exist: {root}\n")
+        return 2
+
+    files = find_meta_files(root)
+    metas: dict[Path, dict | str] = {p: load_meta(p) for p in files}
+    all_slugs = {slug_for(p, root) for p in files}
+
+    report: list[dict] = []
+    fail = 0
+    for p, m in metas.items():
+        rel = str(p.relative_to(root))
+        if isinstance(m, str):
+            report.append({"file": rel, "errors": [m]})
+            fail += 1
+            continue
+        errs = validate_one(p, m, all_slugs)
+        if errs:
+            report.append({"file": rel, "errors": errs})
+            fail += 1
+
+    if args.json:
+        print(json.dumps({
+            "root": str(root),
+            "files_checked": len(files),
+            "files_failed": fail,
+            "violations": report,
+        }, indent=2))
+    else:
+        if not files:
+            print(f"lab-validate: no _meta.yaml files under {root}")
+            return 0
+        if fail == 0:
+            print(f"lab-validate: ok — {len(files)} file(s) checked, no violations")
+        else:
+            print(f"lab-validate: FAIL — {fail}/{len(files)} file(s) have violations\n")
+            for entry in report:
+                print(f"  {entry['file']}")
+                for err in entry["errors"]:
+                    print(f"    - {err}")
+                print()
+
+    return 0 if fail == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

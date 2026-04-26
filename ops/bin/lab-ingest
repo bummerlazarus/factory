@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# lab-ingest — single entry point for ingesting any source into the EM Research Lab.
+#
+# Routes by source type to the right edge function or handler. In Phase 0 only
+# the YouTube path is wired (delegating to ingest-youtube.sh which is the
+# established pattern in factory/ops/bin/). PDF and article ingest are stubbed.
+#
+# Phase 1 will extend ingest-youtube.sh (or its edge function) to accept a
+# `target=lab` flag that writes the source-note file + atlas registry entry
+# atomically alongside the existing Supabase memory write.
+#
+# Usage:
+#   lab-ingest <url-or-path> [--tags tag1,tag2] [--force]
+#
+# Examples:
+#   lab-ingest https://www.youtube.com/watch?v=xxxxx
+#   lab-ingest ~/Downloads/some-paper.pdf
+#   lab-ingest https://example.com/article
+#
+# Companion: ~/Documents/Claude/Projects/Claude Bootstrapper/context/previous-setups/em-research-lab-design.md (Validators & Scripts)
+
+set -euo pipefail
+
+INPUT="${1:?usage: lab-ingest <url-or-path> [--tags t1,t2] [--force]}"
+shift || true
+
+EXTRA_ARGS=()
+TAGS_ARG=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --tags) TAGS_ARG="$2"; shift 2 ;;
+    --force) EXTRA_ARGS+=("--force"); shift ;;
+    *) EXTRA_ARGS+=("$1"); shift ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+YT="$SCRIPT_DIR/ingest-youtube.sh"
+
+# ---- Detect source type --------------------------------------------------
+detect_kind() {
+  local in="$1"
+  if [[ "$in" =~ ^https?://(www\.)?(youtube\.com|youtu\.be) ]]; then
+    echo "youtube"; return
+  fi
+  if [[ "$in" =~ \.pdf$ ]] || [[ "$in" =~ \.pdf\?  ]]; then
+    echo "pdf"; return
+  fi
+  if [[ "$in" =~ ^https?:// ]]; then
+    echo "article"; return
+  fi
+  if [[ -f "$in" ]]; then
+    case "$in" in
+      *.pdf)              echo "pdf" ;;
+      *.md|*.txt)         echo "transcript" ;;
+      *)                  echo "file" ;;
+    esac
+    return
+  fi
+  echo "unknown"
+}
+
+KIND="$(detect_kind "$INPUT")"
+
+# ---- Route ---------------------------------------------------------------
+case "$KIND" in
+  youtube)
+    if [[ ! -x "$YT" ]]; then
+      echo "lab-ingest: ingest-youtube.sh not found or not executable: $YT" >&2
+      exit 1
+    fi
+    # Pass tags through; lab tag is added so downstream processors can route.
+    if [[ -n "$TAGS_ARG" ]]; then
+      tags="lab,$TAGS_ARG"
+    else
+      tags="lab"
+    fi
+    echo "lab-ingest: routing to YouTube pipeline (tags=$tags)"
+    exec "$YT" "$INPUT" --tags "$tags" "${EXTRA_ARGS[@]}"
+    ;;
+
+  pdf)
+    echo "lab-ingest: PDF ingest not yet implemented (Phase 1 task)." >&2
+    echo "  For now: drop the PDF in /inbox/ and triage manually." >&2
+    exit 64
+    ;;
+
+  article)
+    echo "lab-ingest: article ingest not yet implemented (Phase 1 task)." >&2
+    echo "  For now: copy the URL into a note in /inbox/ and triage manually." >&2
+    exit 64
+    ;;
+
+  transcript|file)
+    echo "lab-ingest: file ingest ($KIND) not yet implemented (Phase 1 task)." >&2
+    echo "  For now: copy the file into /inbox/ and triage manually." >&2
+    exit 64
+    ;;
+
+  unknown|*)
+    echo "lab-ingest: could not detect source type for: $INPUT" >&2
+    echo "  Supported (Phase 0): YouTube URLs only." >&2
+    exit 65
+    ;;
+esac
