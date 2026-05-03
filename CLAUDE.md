@@ -40,6 +40,18 @@ The rebuild ran 2026-04-17 → 2026-04-26 and retired GravityClaw. Current archi
 
 **Guiding principle:** Edmund will not outbuild Anthropic. See `ops/north-star.md`.
 
+## Where agent-produced artifacts land
+
+Three independent stores. `public.artifact_links` (migration 036, 2026-05-03) cross-links them so the dashboard surfaces stay discoverable:
+
+| Storage | What lives there | Surface |
+|---|---|---|
+| `COWORK_PATH` (disk) | `write_file` outputs, agent personalities | `/files` |
+| `public.workspace_items` | Plans / Projects / Tasks / Scopes | `/workspace` |
+| `public.reference_docs` | Sophia research briefs, Augustin syntheses, etc. | `/research` |
+
+When `executeTool` is called with `activeWorkspaceItemId`, `sophia_research`, `augustin_synthesize`, and `write_file` automatically insert a row into `artifact_links` so the resulting brief/file shows up on `/workspace` (project detail → Artifacts) and a "Linked to" badge appears on `/research/[id]`.
+
 ## Skills registry lives in THREE places
 
 Before saying "no skill exists for X" or creating a new skill, check all three:
@@ -73,6 +85,7 @@ Any new ingest pipeline (article, PDF, transcript) MUST follow this pattern — 
 - Conversation → decisions/research logged to files → reviewed together.
 - Don't over-engineer. Minimum complexity for the current task.
 - Read files before modifying; never guess at business logic.
+- **Before editing ANY file under `agent personalities/agents/<id>/` (identity / soul / CLAUDE.md), read [`ops/docs/agent-source-of-truth.md`](ops/docs/agent-source-of-truth.md) and confirm `COWORK_PATH` in `dashboard/.env.local`. Wrong copy = dashboard keeps serving old prompts. Bit twice on 2026-05-03.** This rule retires when the v2 plan (`ops/plans/2026-05-03-agent-personas-and-memory.md`) ships and DB becomes source of truth.
 - If MCP tools fail twice, stop and ask.
 - Never use `browser_subagent` — crashes the system.
 - Firecrawl is the primary web research tool.
