@@ -24,7 +24,7 @@ Anything else is wrong. Verify with `list_projects` if unsure.
 | `ops/docs/` | Operational references: `capture-api.md`, `iphone-shortcuts-guide.md`, `specialist-spawn.md`, **`agent-source-of-truth.md`** (READ THIS before editing any agent — disk vs. DB convention), **`loose-ends.md`** (READ THIS before ending a session — write follow-ups to `agent_tasks`, don't ask Edmund to remember them). |
 | `ops/autonomy-charter.md` | Rules of engagement for autonomous runs. |
 | `ops/north-star.md` | Vision anchor — what "done" feels like for the stack. |
-| `supabase/migrations/` | Numbered SQL migrations. Latest: `026_weekly_review_realtime_and_anon_select.sql` (2026-05-03). |
+| `supabase/migrations/` | Numbered SQL migrations. Latest: `037_model_calls.sql` (2026-05-03). |
 | `supabase/proposals/` | Live design proposals not yet executed (e.g. `table-registry.md`, `pii-default-deny-rls.md`). |
 | `skills/` | Working subset of SKILL.md files. **Not** the source of truth — see Skills section below. |
 | `reference/` | External reference material and cloned repos (read-only). Contains `tool-guides/` (20+ overview docs), `reference-repos/` (e.g. `OB1-main/` for OB-1 patterns), `guides/`, `archive/`. **Clone new reference repos here**, not into a `research/` folder (that path doesn't exist). |
