@@ -15,6 +15,40 @@ Format:
 
 ---
 
+## 2026-05-03 — Routing layer shipped: `table_registry` + `intent_router`
+
+**Decision:** Land the routing layer described in `supabase/proposals/table-registry.md` (2026-04-26). Two new tables in `public`:
+- `table_registry` (65 rows) — per-table metadata: `domain`, `layer`, `canonical_status`, `safe_for_default_retrieval`, `query_style`, `retrieval_notes`, `owner_intent[]`.
+- `intent_router` (11 rows) — coarse intent label → `primary_tables[]` / `secondary_tables[]` / `forbidden_tables[]` / `query_style` / `required_filters jsonb`.
+
+Migration `020_table_registry.sql` is the canonical schema + idempotent seed. The DB applied it as three sub-migrations on 2026-05-03 (`020_table_registry_and_intent_router`, `020b_seed_table_registry`, `020c_seed_intent_router`); the file consolidates them so a fresh `supabase db reset` reproduces live state.
+
+**Context:** Memory is overloaded across six places (per `00-SYSTEM-INDEX.md`). Agents had no machine-readable answer to "is this table safe to query for this intent?" That gap caused two failure modes: (a) PII leakage risk on default retrieval, (b) name-collision queries (e.g. `projects` vs. `workstreams`). The proposal classified all 63→65 tables and proposed an intent vocabulary aligned with the multi-agent design from Q7.
+
+**Reasoning:**
+- Build the metadata layer before the enforcement layer. Once the registry exists, an Edge Function `route_query()` can refuse unsafe combinations and dashboards can read it for filtering.
+- Idempotent seed (`ON CONFLICT DO UPDATE`) means re-running the migration keeps the registry current without manual intervention.
+- New `meta` domain added (not in original proposal) for self-describing config tables (`table_registry`, `intent_router`). Keeps the vocabulary closed.
+- 11 intents shipped verbatim from proposal. PII default-deny enforced as convention via `safe_for_default_retrieval=false`; not yet RLS-backed (deferred — see follow-ups).
+
+**Consequences:**
+- `route_query()` Edge Function and call-site refactor are now unblocked.
+- `agent_retrieval_feedback` (now 18 rows, was 0 in proposal) is positioned for a self-improvement loop — feedback can demote `safe_for_default_retrieval` or surface forbidden_tables candidates. Wiring TBD.
+- Drift detection still missing: tables added after 2026-05-03 will not auto-appear in `table_registry`. Audit script or `pg_event_trigger` needed.
+- Proposal Part 5 step 5 (RLS-backed PII default-deny) is **not** done. Convention only.
+
+**Follow-ups flagged:**
+1. Build `route_query(intent, query, scope)` Edge Function.
+2. Refactor existing retrieval call sites in `dashboard/` to go through `route_query`.
+3. Wire `agent_retrieval_feedback` aggregation → router-improvement view (human-in-loop, not auto-mutation).
+4. PII RLS hardening — needs design decision on the `app.pii_ok` GUC mechanism (per Edmund).
+5. Drift-detection audit (nightly `information_schema.tables` diff against `table_registry.table_name`).
+6. Re-classify `agent_retrieval_feedback` from `scratch` → `canonical` once it has a real consumer.
+
+**Status:** active
+
+---
+
 ## 2026-04-19 — W10 compression engine shipped
 
 **Decision:** Ship the Wave 10 compression engine — shared LLM helper with tier routing + stochastic consensus, typed-link vocabulary, four new agents (Processor/Axum, Researcher/Sophia, Contradiction/Kontra, Permanent Gate/Kairos, IP Specialist/Augustin), upgraded `research-director-synthesis` to N=3 stochastic consensus, OpenRouter-first routing, and a `/compression` dashboard route. Dashboard commit `a519da3` on branch `feat/compression-engine`.

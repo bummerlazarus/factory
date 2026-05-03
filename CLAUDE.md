@@ -21,11 +21,11 @@ Anything else is wrong. Verify with `list_projects` if unsure.
 |---|---|
 | `dashboard/` | Sister repo ([bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)) cloned into `./dashboard/` and gitignored here. Deployed to Vercel as project `dashboard` (prod URL `dashboard-nine-delta-26.vercel.app`). |
 | `ops/bin/` | Ingest scripts. Every script writes to Supabase `public.ingest_runs` (migration 017) so failures are debuggable. |
-| `ops/docs/` | Operational references: `capture-api.md`, `iphone-shortcuts-guide.md`, `specialist-spawn.md`. |
+| `ops/docs/` | Operational references: `capture-api.md`, `iphone-shortcuts-guide.md`, `specialist-spawn.md`, **`agent-source-of-truth.md`** (READ THIS before editing any agent — disk vs. DB convention). |
 | `ops/autonomy-charter.md` | Rules of engagement for autonomous runs. |
 | `ops/north-star.md` | Vision anchor — what "done" feels like for the stack. |
-| `supabase/migrations/` | Numbered SQL migrations. Latest: `020_table_registry.sql` (2026-05-02). |
-| `supabase/proposals/` | Live design proposals not yet executed (e.g. `table-registry.md`). |
+| `supabase/migrations/` | Numbered SQL migrations. Latest: `026_weekly_review_realtime_and_anon_select.sql` (2026-05-03). |
+| `supabase/proposals/` | Live design proposals not yet executed (e.g. `table-registry.md`, `pii-default-deny-rls.md`). |
 | `skills/` | Working subset of SKILL.md files. **Not** the source of truth — see Skills section below. |
 | `research/` | External reference material and cloned repos (read-only). `tool-guides/` has 20+ overview docs; `reference-repos/OB1-main/` for OB-1 patterns. |
 | `archive/architecture-rebuild-2026-04-17/` | **RETIRED 2026-05-02.** Frozen rebuild notebook. Read `RETIREMENT.md` for what shipped and where artifacts moved. Do not read for current state. |
