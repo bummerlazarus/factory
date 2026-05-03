@@ -58,8 +58,9 @@ async function rest(path, opts = {}) {
   };
   const res = await fetch(`${URL_BASE}/rest/v1/${path}`, { ...opts, headers });
   if (!res.ok) throw new Error(`${path} → ${res.status} ${await res.text()}`);
-  if (res.status === 204) return null;
-  return res.json();
+  const txt = await res.text();
+  if (!txt) return null;
+  try { return JSON.parse(txt); } catch { return txt; }
 }
 
 const KIND_TO_FILE = { identity: "identity.md", claude: "CLAUDE.md", soul: "soul.md" };
@@ -99,7 +100,7 @@ for (const a of agents) {
             method: "POST",
             body: JSON.stringify({
               kind: "risk",
-              summary: `Persona disk drift: ${target} is newer than DB approved_at; pull refused.`,
+              body: `Persona disk drift: ${target} is newer than DB approved_at; pull refused.`,
               metadata: {
                 drift_type: "persona_drift",
                 persona_drift: {
