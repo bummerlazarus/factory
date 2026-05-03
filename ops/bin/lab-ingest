@@ -80,9 +80,17 @@ case "$KIND" in
     ;;
 
   pdf)
-    echo "lab-ingest: PDF ingest not yet implemented (Phase 1 task)." >&2
-    echo "  For now: drop the PDF in /inbox/ and triage manually." >&2
-    exit 64
+    PDF_SCRIPT="$SCRIPT_DIR/lab-ingest-pdf"
+    if [[ ! -x "$PDF_SCRIPT" ]]; then
+      echo "lab-ingest: lab-ingest-pdf not found or not executable: $PDF_SCRIPT" >&2
+      exit 1
+    fi
+    if [[ "$INPUT" =~ ^https?:// ]]; then
+      echo "lab-ingest: URL→PDF download not yet supported. Save the PDF locally and rerun." >&2
+      exit 64
+    fi
+    echo "lab-ingest: routing to PDF pipeline"
+    exec "$PDF_SCRIPT" "$INPUT" "${EXTRA_ARGS[@]}"
     ;;
 
   article)

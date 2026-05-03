@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""
+lab-make-source-note — generate a lab source-note from a YouTube video whose
+transcript is already in Supabase memory.
+
+Reads transcript chunks from public.memory (filtered by metadata.video_id),
+asks Claude to produce a structured source note, then writes the draft to:
+
+  - inbox/proposed/<slug>.md     (the source note, with YAML frontmatter)
+
+…and inserts a `reference_docs` row in Supabase with `lab_zone: inbox`.
+The note is NOT in the atlas yet — Edmund reviews it in inbox, then runs
+`lab-promote <slug>` to move it to `knowledge-atlas/documents/` and create
+the source registry entry in `knowledge-atlas/sources/`.
+
+All filesystem writes are staged in a tempdir; on any failure, the staged
+files are discarded and the Supabase row (if inserted) is deleted by slug.
+
+Does NOT touch ingest-youtube.sh or any other script.
+
+Usage:
+  lab-make-source-note <youtube-url> [--domain brand-content-strategy] [--lab-root PATH]
+"""
+
+from __future__ import annotations
+import argparse, json, os, re, shutil, sys, tempfile, urllib.parse, urllib.request, urllib.error
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+# ---- env loading ----------------------------------------------------------
+
+ENV_PATH = Path(os.environ.get("FACTORY_ENV", "/Users/edmundmitchell/factory/ops/.env"))
+
+def load_env() -> dict:
+    if not ENV_PATH.exists():
+        sys.exit(f"env file not found: {ENV_PATH}")
+    env = {}
+    for line in ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        v = v.strip().strip('"').strip("'")
+        env[k.strip()] = v
+    for required in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ANTHROPIC_API_KEY"):
+        if not env.get(required):
+            sys.exit(f"missing required env: {required}")
+    return env
+
+# ---- HTTP helpers ---------------------------------------------------------
+
+def http(method: str, url: str, headers: dict, body=None) -> tuple[int, bytes]:
+    data = None
+    if body is not None:
+        data = body if isinstance(body, (bytes, bytearray)) else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+# ---- Supabase -------------------------------------------------------------
+
+def sb_headers(env: dict) -> dict:
+    return {
+        "apikey": env["SUPABASE_SERVICE_ROLE_KEY"],
+        "Authorization": f"Bearer {env['SUPABASE_SERVICE_ROLE_KEY']}",
+        "Content-Type": "application/json",
+    }
+
+def fetch_transcript_chunks(env: dict, video_id: str) -> list[dict]:
+    """Pull all memory rows for this video_id, sorted by metadata.end_time."""
+    url = (
+        f"{env['SUPABASE_URL']}/rest/v1/memory"
+        f"?select=content,metadata"
+        f"&metadata->>video_id=eq.{urllib.parse.quote(video_id)}"
+        f"&order=metadata->>end_time.asc"
+        f"&limit=10000"
+    )
+    status, body = http("GET", url, sb_headers(env))
+    if status != 200:
+        sys.exit(f"supabase fetch failed ({status}): {body[:300]!r}")
+    rows = json.loads(body)
+    if not rows:
+        sys.exit(f"no memory chunks found for video_id={video_id} — has the video been ingested via ingest-youtube.sh?")
+    return rows
+
+def insert_reference_doc(env: dict, row: dict) -> str:
+    headers = {**sb_headers(env), "Prefer": "return=representation"}
+    status, body = http("POST", f"{env['SUPABASE_URL']}/rest/v1/reference_docs",
+                        headers, body=row)
+    if status not in (200, 201):
+        raise RuntimeError(f"reference_docs insert failed ({status}): {body[:500]!r}")
+    return json.loads(body)[0]["id"]
+
+def delete_reference_doc_by_slug(env: dict, slug: str) -> None:
+    url = f"{env['SUPABASE_URL']}/rest/v1/reference_docs?slug=eq.{urllib.parse.quote(slug)}"
+    http("DELETE", url, sb_headers(env))
+
+# ---- Anthropic ------------------------------------------------------------
+
+ANTHROPIC_MODEL = "claude-opus-4-7"
+
+DOMAIN_BRIEF = """Edmund is a Catholic content creator (YouTube channel "Cordial Catholics"),
+an AI agent builder (Gravity Claw), and a brand/content strategy consultant
+(Digital Continent — clients include CFCS, Liv Harrison, Culture Project).
+The "brand-content-strategy" domain covers: how brands and creators earn
+attention, build audiences, run content operations, develop voice and IP,
+and convert audience to revenue — across both B2B/SaaS and creator/personal
+brand contexts. Edmund cares about transferable principles, not single-tactic
+hacks.
+"""
+
+PROMPT_RE = re.compile(r"## Prompt\b.*?\n```[^\n]*\n(.*?)\n```", re.DOTALL)
+
+def load_agent_prompt(lab_root: Path, agent_filename: str) -> str:
+    """Load the fenced ## Prompt block from an agent instruction file."""
+    path = lab_root / "research" / "04-agent-instructions" / agent_filename
+    if not path.is_file():
+        sys.exit(f"agent instructions not found: {path}")
+    m = PROMPT_RE.search(path.read_text())
+    if not m:
+        sys.exit(f"no ## Prompt fenced block in {path}")
+    return m.group(1)
+
+def call_claude(env: dict, prompt: str) -> dict:
+    body = {
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": 8192,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "x-api-key": env["ANTHROPIC_API_KEY"],
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    status, raw = http("POST", "https://api.anthropic.com/v1/messages", headers, body)
+    if status != 200:
+        sys.exit(f"anthropic call failed ({status}): {raw[:500]!r}")
+    resp = json.loads(raw)
+    text = "".join(b["text"] for b in resp["content"] if b["type"] == "text").strip()
+    # Strip accidental code fences
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.DOTALL)
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        sys.exit(f"claude returned non-JSON: {e}\n---\n{text[:800]}")
+    if "error" in parsed:
+        sys.exit(f"reading agent declined: {parsed['error']}")
+    return parsed
+
+# ---- video id -------------------------------------------------------------
+
+def extract_video_id(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    qs = urllib.parse.parse_qs(parsed.query)
+    if "v" in qs:
+        return qs["v"][0]
+    # youtu.be/<id>
+    path = parsed.path.strip("/").split("/")[-1]
+    if path:
+        return path
+    sys.exit(f"could not extract video_id from URL: {url}")
+
+# ---- file rendering -------------------------------------------------------
+
+def render_source_registry(note: dict, video_url: str, today: str) -> str:
+    return (
+        f"# {note['title']}\n"
+        f"- **Author:** {note.get('author') or ''}\n"
+        f"- **Type:** youtube\n"
+        f"- **Published:** \n"
+        f"- **Link:** {video_url}\n"
+        f"- **Agreement:** {note['agreement_level']}\n"
+        f"- **Ingested:** {today}\n"
+    )
+
+def render_frontmatter(note: dict, slug: str, domain: str, today: str, video_id: str, video_url: str, channel: str) -> str:
+    tags = note.get("tags") or []
+    tag_lines = "\n".join(f"  - {t}" for t in tags) if tags else "  []"
+    title_escaped = note["title"].replace('"', '\\"')
+    src_str = note.get("source_strength") or {}
+    src_basis_escaped = (src_str.get("basis") or "").replace('"', '\\"')
+    return (
+        "---\n"
+        f"title: \"{title_escaped}\"\n"
+        f"slug: {slug}\n"
+        f"kind: source-note\n"
+        f"status: current\n"
+        f"created_at: {today}\n"
+        f"reviewed_at: {today}\n"
+        f"review_frequency: on-new-source\n"
+        f"source_refs:\n  - {slug}\n"
+        f"domains:\n  - {domain}\n"
+        f"agreement_level: {note['agreement_level']}\n"
+        f"confidence: {note['confidence']}\n"
+        f"source_strength:\n"
+        f"  level: {src_str.get('level', 'medium')}\n"
+        f"  basis: \"{src_basis_escaped}\"\n"
+        f"superseded_by: null\n"
+        f"tags:\n{tag_lines}\n"
+        f"source:\n"
+        f"  type: youtube\n"
+        f"  video_id: {video_id}\n"
+        f"  url: {video_url}\n"
+        f"  channel: \"{channel}\"\n"
+        "---\n\n"
+    )
+
+def _render_outline(nodes: list[dict], depth: int = 0) -> list[str]:
+    lines: list[str] = []
+    indent = "  " * depth
+    for n in nodes or []:
+        item = (n.get("item") or "").strip()
+        if not item:
+            continue
+        lines.append(f"{indent}- {item}")
+        children = n.get("children") or []
+        if children:
+            lines.extend(_render_outline(children, depth + 1))
+    return lines
+
+
+def render_doc_md(note: dict) -> str:
+    out: list[str] = [f"# {note['title']}\n"]
+
+    out.append("## Thesis")
+    out.append(note["thesis"].strip() + "\n")
+
+    out.append("## Why this is relevant")
+    out.append(note["why_relevant"].strip() + "\n")
+
+    out.append("## Summary")
+    out.append(note["summary"].strip() + "\n")
+
+    if note.get("methodology"):
+        out.append("## Methodology")
+        out.append(note["methodology"].strip() + "\n")
+
+    outline = note.get("outline") or []
+    if outline:
+        out.append("## Outline")
+        out.extend(_render_outline(outline))
+        out.append("")
+
+    frameworks = note.get("frameworks") or []
+    if frameworks:
+        out.append("## Frameworks")
+        for fw in frameworks:
+            out.append(f"### {fw['name']}")
+            if fw.get("what_it_is"):
+                out.append(f"_{fw['what_it_is']}_\n")
+            for el in fw.get("elements", []):
+                out.append(f"- **{el['label']}** — {el['explanation']}")
+            out.append("")
+
+    concepts = note.get("concepts") or []
+    if concepts:
+        out.append("## Concepts")
+        for c in concepts:
+            line = f"- **{c['name']}** — {c['definition']}"
+            if c.get("where"):
+                line += f"  \n  *Where:* {c['where']}"
+            out.append(line)
+        out.append("")
+
+    disciplines = note.get("disciplines") or []
+    if disciplines:
+        out.append("## Disciplines")
+        for d in disciplines:
+            out.append(f"- **{d['name']}** — {d['description']}")
+        out.append("")
+
+    args = note.get("key_arguments") or []
+    if args:
+        out.append("## Key Arguments")
+        for a in args:
+            out.append(f"- **{a['claim']}**")
+            out.append(f"  - *Evidence:* {a['evidence']}")
+            if a.get("where"):
+                out.append(f"  - *Where:* {a['where']}")
+        out.append("")
+
+    quotes = note.get("important_quotes") or []
+    if quotes:
+        out.append("## Important Quotes")
+        for q in quotes:
+            speaker = q.get("speaker")
+            ts = q.get("timestamp")
+            attribution_bits = [b for b in [speaker, ts] if b]
+            attribution = " · ".join(attribution_bits) if attribution_bits else ""
+            out.append(f"> \"{q['quote']}\"")
+            if attribution:
+                out.append(f"> — {attribution}")
+            out.append("")
+
+    cited = note.get("sources_cited") or []
+    if cited:
+        out.append("## Sources cited")
+        out.append("_Other people, books, studies, or companies referenced in the transcript — for trail-following._\n")
+        for s in cited:
+            out.append(f"- **{s['name']}** — {s['context']}")
+        out.append("")
+
+    fu = note.get("possible_follow_ups") or {}
+    fu_items = [
+        ("Content angle", fu.get("content_angle")),
+        ("Playbook candidate", fu.get("playbook_candidate")),
+        ("Synthesis pair", fu.get("synthesis_pair")),
+        ("IP candidate", fu.get("ip_candidate")),
+        ("Adjacent to chase", fu.get("adjacent_to_chase")),
+    ]
+    fu_items = [(k, v) for k, v in fu_items if v]
+    if fu_items:
+        out.append("## Possible follow-ups")
+        for label, val in fu_items:
+            out.append(f"- **{label}:** {val}")
+        out.append("")
+
+    return "\n".join(out)
+
+# ---- main -----------------------------------------------------------------
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("url", help="YouTube URL (must already be ingested via ingest-youtube.sh)")
+    p.add_argument("--domain", default="brand-content-strategy")
+    p.add_argument("--lab-root", default="/Users/edmundmitchell/Documents/Claude/Projects/EM Research Lab")
+    args = p.parse_args()
+
+    env = load_env()
+    lab_root = Path(args.lab_root).resolve()
+    if not (lab_root / "knowledge-atlas").is_dir():
+        sys.exit(f"lab root not found / not scaffolded: {lab_root}")
+
+    today = date.today().isoformat()
+    video_id = extract_video_id(args.url)
+    print(f"video_id: {video_id}")
+
+    chunks = fetch_transcript_chunks(env, video_id)
+    md0 = chunks[0]["metadata"]
+    title = md0.get("title") or video_id
+    channel = md0.get("channel") or md0.get("channel_name") or ""
+    print(f"title:    {title}")
+    print(f"channel:  {channel}")
+    print(f"chunks:   {len(chunks)}")
+
+    transcript = "\n".join(c["content"] for c in chunks if c.get("content"))
+    print(f"chars:    {len(transcript)}")
+
+    print("loading agent instructions…")
+    prompt_template = load_agent_prompt(lab_root, "reading-agent.md")
+
+    print("calling claude…")
+    note = call_claude(env, prompt_template.format(
+        domain_brief=DOMAIN_BRIEF, domain=args.domain, title=title, channel=channel,
+        url=args.url, transcript=transcript,
+    ))
+    slug = note["slug"]
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug) or len(slug) > 60:
+        sys.exit(f"invalid slug from agent: {slug!r}")
+    print(f"slug:     {slug}")
+
+    # ---- stage filesystem writes ----
+    staging = Path(tempfile.mkdtemp(prefix="lab-source-note-"))
+    print(f"staging:  {staging}")
+    doc_file = staging / f"{slug}.md"
+    frontmatter = render_frontmatter(note, slug, args.domain, today, video_id, args.url, channel)
+    doc_file.write_text(frontmatter + render_doc_md(note))
+
+    # ---- check for collisions ----
+    final_doc       = lab_root / "inbox" / "proposed" / f"{slug}.md"
+    atlas_doc       = lab_root / "knowledge-atlas" / "documents" / f"{slug}.md"
+    atlas_source    = lab_root / "knowledge-atlas" / "sources" / f"{slug}.md"
+    if final_doc.exists() or atlas_doc.exists() or atlas_source.exists():
+        shutil.rmtree(staging)
+        sys.exit(f"collision: {slug} already exists somewhere in the lab. Delete it or pick another slug.")
+
+    # ---- insert Supabase row (staged in inbox; promotion updates lab_zone) ----
+    row = {
+        "slug": slug,
+        "title": note["title"],
+        "body": doc_file.read_text(),
+        "kind": "source-note",
+        "lab_zone": "inbox",
+        "status": "draft",
+        "source_refs": [slug],
+        "reviewed_at": None,
+        "review_frequency": "on-new-source",
+        "metadata": {
+            "domains": [args.domain],
+            "agreement_level": note["agreement_level"],
+            "confidence": note["confidence"],
+            "tags": note.get("tags") or [],
+            "video_id": video_id,
+            "video_url": args.url,
+            "channel": channel,
+            "staged_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    print("inserting reference_docs row…")
+    try:
+        ref_id = insert_reference_doc(env, row)
+    except Exception as e:
+        shutil.rmtree(staging)
+        sys.exit(f"supabase insert failed: {e}")
+    print(f"ref_id:   {ref_id}")
+
+    # ---- commit filesystem (mv staging into inbox/proposed) ----
+    try:
+        final_doc.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(doc_file), str(final_doc))
+    except Exception as e:
+        delete_reference_doc_by_slug(env, slug)
+        shutil.rmtree(staging, ignore_errors=True)
+        sys.exit(f"filesystem move failed; rolled back Supabase row: {e}")
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    print("\n✓ staged in inbox:")
+    print(f"  {final_doc.relative_to(lab_root)}")
+    print(f"  reference_docs.id = {ref_id}  (lab_zone=inbox, status=draft)")
+    print(f"\nReview the file. When ready, promote to atlas:")
+    print(f"  lab-promote {slug}")
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,276 @@
+#!/usr/bin/env python3
+"""
+lab-promote — move a vetted draft from /inbox/proposed/ to its destination zone.
+
+Reads the staged file, looks at frontmatter `kind:` to determine where it
+belongs, moves the file, updates frontmatter (`reviewed_at`), updates the
+Supabase reference_docs row's `lab_zone` and `status`, and (for source-notes)
+generates the `knowledge-atlas/sources/<slug>.md` registry entry from the
+note's frontmatter.
+
+Routing by kind:
+  source-note          → knowledge-atlas/documents/   (also creates sources/ entry)
+  reference            → knowledge-atlas/documents/
+  sop                  → knowledge-atlas/documents/
+  landscape-brief      → knowledge-atlas/documents/
+  landscape-observation → knowledge-atlas/documents/
+  synthesis-memo       → research/02-synthesis/
+  framework            → research/03-candidates/  (if status=draft)
+                       → ip/documents/             (otherwise)
+  articulation         → ip/documents/
+  brand-concept        → ip/documents/
+  methodology          → ip/documents/
+  playbook             → ip/documents/
+  recommendation       (stays in inbox; not promoted via this tool)
+
+Usage:
+  lab-promote <slug> [--lab-root PATH] [--dry-run]
+"""
+from __future__ import annotations
+import os, sys
+from pathlib import Path
+
+# ---- auto-venv re-exec (PyYAML lives in the lab venv) --------------------
+_LAB_DEFAULT_ROOT = Path("/Users/edmundmitchell/Documents/Claude/Projects/EM Research Lab")
+def _ensure_lab_venv() -> None:
+    if os.environ.get("LAB_PROMOTE_REEXEC") == "1":
+        return
+    venv_dir = Path(os.environ.get("LAB_VENV") or (_LAB_DEFAULT_ROOT / ".venv"))
+    venv_py = venv_dir / "bin" / "python3"
+    if not venv_py.is_file():
+        return
+    if Path(sys.prefix) == venv_dir:
+        return
+    os.environ["LAB_PROMOTE_REEXEC"] = "1"
+    os.execv(str(venv_py), [str(venv_py), __file__] + sys.argv[1:])
+_ensure_lab_venv()
+
+import argparse, json, re, shutil, urllib.parse, urllib.request, urllib.error
+from datetime import date, datetime, timezone
+
+import yaml  # PyYAML (from lab venv)
+
+ENV_PATH = Path(os.environ.get("FACTORY_ENV", "/Users/edmundmitchell/factory/ops/.env"))
+
+KIND_DESTINATIONS = {
+    "source-note":            ("knowledge-atlas", "knowledge-atlas/documents"),
+    "reference":              ("knowledge-atlas", "knowledge-atlas/documents"),
+    "sop":                    ("knowledge-atlas", "knowledge-atlas/documents"),
+    "landscape-brief":        ("knowledge-atlas", "knowledge-atlas/documents"),
+    "landscape-observation":  ("knowledge-atlas", "knowledge-atlas/documents"),
+    "paper":                  ("knowledge-atlas", "knowledge-atlas/documents"),
+    "synthesis-memo":         ("research",        "research/02-synthesis"),
+    # 'framework' resolved at runtime based on status
+    "articulation":           ("ip",              "ip/documents"),
+    "brand-concept":          ("ip",              "ip/documents"),
+    "methodology":            ("ip",              "ip/documents"),
+    "playbook":               ("ip",              "ip/documents"),
+}
+
+FRONTMATTER_RE = re.compile(r"\A(---\s*\n)(.*?)(\n---\s*\n)", re.DOTALL)
+
+
+def load_env() -> dict:
+    if not ENV_PATH.exists():
+        sys.exit(f"env file not found: {ENV_PATH}")
+    env = {}
+    for line in ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip().strip('"').strip("'")
+    for r in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+        if not env.get(r):
+            sys.exit(f"missing env: {r}")
+    return env
+
+
+def http(method, url, headers, body=None):
+    data = None
+    if body is not None:
+        data = body if isinstance(body, (bytes, bytearray)) else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def sb_headers(env):
+    return {
+        "apikey": env["SUPABASE_SERVICE_ROLE_KEY"],
+        "Authorization": f"Bearer {env['SUPABASE_SERVICE_ROLE_KEY']}",
+        "Content-Type": "application/json",
+    }
+
+
+def parse_frontmatter(text: str) -> tuple[dict, str, str]:
+    """Return (frontmatter_dict, frontmatter_yaml_text, body_text)."""
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        sys.exit("file has no YAML frontmatter")
+    yaml_text = m.group(2)
+    body = text[m.end():]
+    fm = yaml.safe_load(yaml_text) or {}
+    return fm, yaml_text, body
+
+
+def write_with_frontmatter(path: Path, fm: dict, body: str) -> None:
+    yaml_text = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10000).rstrip()
+    path.write_text(f"---\n{yaml_text}\n---\n\n{body.lstrip()}")
+
+
+def resolve_destination(fm: dict) -> tuple[str, str]:
+    kind = fm.get("kind")
+    if not kind:
+        sys.exit("frontmatter missing required field: kind")
+    if kind == "framework":
+        zone = "ip" if fm.get("status") == "current" else "research"
+        rel = "ip/documents" if zone == "ip" else "research/03-candidates"
+        return zone, rel
+    if kind == "recommendation":
+        sys.exit("recommendations stay in /inbox/ — they aren't promoted via lab-promote")
+    if kind not in KIND_DESTINATIONS:
+        sys.exit(f"unknown kind for promotion: {kind!r}")
+    return KIND_DESTINATIONS[kind]
+
+
+def render_source_registry_from_fm(fm: dict, today: str) -> str:
+    src = fm.get("source") or {}
+    return (
+        f"# {fm.get('title', '')}\n"
+        f"- **Author:** {src.get('author') or fm.get('author') or src.get('channel') or ''}\n"
+        f"- **Type:** {src.get('type', '')}\n"
+        f"- **Published:** \n"
+        f"- **Link:** {src.get('url', '')}\n"
+        f"- **Agreement:** {fm.get('agreement_level', '')}\n"
+        f"- **Ingested:** {today}\n"
+    )
+
+
+def update_supabase_row(env: dict, slug: str, fields: dict) -> None:
+    url = f"{env['SUPABASE_URL']}/rest/v1/reference_docs?slug=eq.{urllib.parse.quote(slug)}"
+    headers = {**sb_headers(env), "Prefer": "return=minimal"}
+    status, body = http("PATCH", url, headers, body=fields)
+    if status not in (200, 204):
+        sys.exit(f"supabase patch failed ({status}): {body[:300]!r}")
+
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("slug")
+    p.add_argument("--lab-root", default="/Users/edmundmitchell/Documents/Claude/Projects/EM Research Lab")
+    p.add_argument("--dry-run", action="store_true")
+    args = p.parse_args()
+
+    lab_root = Path(args.lab_root).resolve()
+    src_path = lab_root / "inbox" / "proposed" / f"{args.slug}.md"
+    if not src_path.is_file():
+        sys.exit(f"not found: {src_path.relative_to(lab_root)}")
+
+    text = src_path.read_text()
+    fm, _yaml, body = parse_frontmatter(text)
+    if fm.get("slug") != args.slug:
+        sys.exit(f"frontmatter slug ({fm.get('slug')!r}) doesn't match filename slug ({args.slug!r})")
+
+    zone, rel_dir = resolve_destination(fm)
+    dest_dir = lab_root / rel_dir
+    dest_path = dest_dir / f"{args.slug}.md"
+    if dest_path.exists():
+        sys.exit(f"collision: {dest_path.relative_to(lab_root)} already exists")
+
+    today = date.today().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Update frontmatter for promotion
+    fm["reviewed_at"] = today
+    if fm.get("status") == "draft" and fm.get("kind") != "framework":
+        # framework candidates intentionally stay draft until human-reviewed in /ip/
+        fm["status"] = "current"
+
+    # Source registry (source-notes only)
+    registry_path = lab_root / "knowledge-atlas" / "sources" / f"{args.slug}.md"
+    will_write_registry = (fm.get("kind") == "source-note")
+
+    # Paper PDF: stage in inbox/raw/papers/, promote to knowledge-atlas/raw/papers/
+    is_paper = (fm.get("kind") == "paper")
+    pdf_src = lab_root / "inbox" / "raw" / "papers" / f"{args.slug}.pdf"
+    pdf_dst = lab_root / "knowledge-atlas" / "raw" / "papers" / f"{args.slug}.pdf"
+    if is_paper:
+        if not pdf_src.is_file():
+            sys.exit(f"paper missing cached PDF: {pdf_src.relative_to(lab_root)}")
+        if pdf_dst.exists():
+            sys.exit(f"collision: {pdf_dst.relative_to(lab_root)} already exists")
+        # Update frontmatter to reflect the post-promotion PDF location
+        src_obj = fm.get("source") or {}
+        src_obj["pdf_path"] = str(pdf_dst.relative_to(lab_root))
+        fm["source"] = src_obj
+
+    print(f"slug:        {args.slug}")
+    print(f"kind:        {fm.get('kind')}")
+    print(f"from:        {src_path.relative_to(lab_root)}")
+    print(f"to:          {dest_path.relative_to(lab_root)}")
+    if is_paper:
+        print(f"pdf:         {pdf_src.relative_to(lab_root)} → {pdf_dst.relative_to(lab_root)}")
+    if will_write_registry:
+        print(f"registry:    {registry_path.relative_to(lab_root)}")
+    print(f"lab_zone:    {zone}")
+    print(f"status:      {fm['status']}")
+
+    if args.dry_run:
+        print("\n[dry-run] no changes made.")
+        return
+
+    env = load_env()
+
+    # Write file at destination (with updated frontmatter)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    write_with_frontmatter(dest_path, fm, body)
+
+    if will_write_registry:
+        if registry_path.exists():
+            dest_path.unlink()
+            sys.exit(f"collision on registry: {registry_path.relative_to(lab_root)} exists")
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(render_source_registry_from_fm(fm, today))
+
+    # Move PDF for paper kind
+    if is_paper:
+        try:
+            pdf_dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(pdf_src), str(pdf_dst))
+        except Exception as e:
+            dest_path.unlink(missing_ok=True)
+            sys.exit(f"PDF move failed: {e}")
+
+    # Update Supabase
+    update_fields = {
+        "lab_zone": zone,
+        "status": fm["status"],
+        "reviewed_at": now_iso,
+        "body": dest_path.read_text(),
+    }
+    try:
+        update_supabase_row(env, args.slug, update_fields)
+    except SystemExit as e:
+        # rollback FS
+        dest_path.unlink(missing_ok=True)
+        if will_write_registry:
+            registry_path.unlink(missing_ok=True)
+        raise
+
+    # Remove the staging file
+    src_path.unlink()
+
+    print("\n✓ promoted.")
+    print(f"  {dest_path.relative_to(lab_root)}")
+    if is_paper:
+        print(f"  {pdf_dst.relative_to(lab_root)}")
+    if will_write_registry:
+        print(f"  {registry_path.relative_to(lab_root)}")
+
+
+if __name__ == "__main__":
+    main()

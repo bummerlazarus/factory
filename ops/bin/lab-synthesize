@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+"""
+lab-synthesize — synthesis agent. Reads all source-notes + observations for
+a domain, finds patterns across them, and writes:
+
+  - inbox/proposed/<theme-slug>.md           (synthesis-memo, draft)
+  - inbox/proposed/<framework-slug>.md       (optional: framework candidate, draft)
+  - inbox/<YYYY-MM-DD>-gap-<slug>.md         (one or more recommendation memos)
+
+The synthesis-memo and framework candidate go through the standard inbox-staging
+flow — Edmund reviews, then `lab-promote` moves them to research/02-synthesis/
+or research/03-candidates/.
+
+Recommendations skip staging — they're already in inbox by definition (they're
+triage items, not vetted assets).
+
+Usage:
+  lab-synthesize <domain> [--lab-root PATH] [--dry-run]
+"""
+from __future__ import annotations
+import argparse, json, os, re, sys, urllib.parse, urllib.request, urllib.error
+from datetime import date, datetime, timezone
+from pathlib import Path
+
+import yaml
+
+ENV_PATH = Path(os.environ.get("FACTORY_ENV", "/Users/edmundmitchell/factory/ops/.env"))
+ANTHROPIC_MODEL = "claude-opus-4-7"
+
+
+def load_env():
+    if not ENV_PATH.exists():
+        sys.exit(f"env file not found: {ENV_PATH}")
+    env = {}
+    for line in ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip().strip('"').strip("'")
+    for r in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "ANTHROPIC_API_KEY"):
+        if not env.get(r):
+            sys.exit(f"missing env: {r}")
+    return env
+
+
+def http(method, url, headers, body=None):
+    data = None
+    if body is not None:
+        data = body if isinstance(body, (bytes, bytearray)) else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def sb_headers(env):
+    return {
+        "apikey": env["SUPABASE_SERVICE_ROLE_KEY"],
+        "Authorization": f"Bearer {env['SUPABASE_SERVICE_ROLE_KEY']}",
+        "Content-Type": "application/json",
+    }
+
+
+def fetch_source_notes(env, domain):
+    """Pull all current source-notes in atlas, filter to domain in Python."""
+    url = (
+        f"{env['SUPABASE_URL']}/rest/v1/reference_docs"
+        f"?select=slug,title,body,metadata"
+        f"&kind=eq.source-note"
+        f"&lab_zone=eq.knowledge-atlas"
+        f"&status=eq.current"
+    )
+    status, body = http("GET", url, sb_headers(env))
+    if status != 200:
+        sys.exit(f"fetch source-notes failed ({status}): {body[:300]!r}")
+    rows = json.loads(body)
+    return [r for r in rows if domain in ((r.get("metadata") or {}).get("domains") or [])]
+
+
+def fetch_observations(env, domain):
+    url = (
+        f"{env['SUPABASE_URL']}/rest/v1/observations"
+        f"?select=id,kind,body,metadata"
+        f"&metadata->>domain=eq.{urllib.parse.quote(domain)}"
+        f"&order=created_at.asc"
+    )
+    status, body = http("GET", url, sb_headers(env))
+    if status != 200:
+        sys.exit(f"fetch observations failed ({status}): {body[:300]!r}")
+    return json.loads(body)
+
+
+DOMAIN_BRIEF = """Edmund is a Catholic content creator (YouTube channel "Cordial Catholics"),
+an AI agent builder (Gravity Claw), and a brand/content strategy consultant
+(Digital Continent). The "brand-content-strategy" domain covers: how brands
+and creators earn attention, build audiences, run content operations, develop
+voice and IP, and convert audience to revenue — across both B2B/SaaS and
+creator/personal brand contexts. Edmund cares about transferable principles
+that work across his own channel and his consulting clients.
+"""
+
+PROMPT_RE = re.compile(r"## Prompt\b.*?\n```[^\n]*\n(.*?)\n```", re.DOTALL)
+
+def load_agent_prompt(lab_root: Path, agent_filename: str) -> str:
+    path = lab_root / "research" / "04-agent-instructions" / agent_filename
+    if not path.is_file():
+        sys.exit(f"agent instructions not found: {path}")
+    m = PROMPT_RE.search(path.read_text())
+    if not m:
+        sys.exit(f"no ## Prompt fenced block in {path}")
+    return m.group(1)
+
+
+def call_claude(env, prompt, max_tokens=8192):
+    body = {
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "x-api-key": env["ANTHROPIC_API_KEY"],
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    status, raw = http("POST", "https://api.anthropic.com/v1/messages", headers, body)
+    if status != 200:
+        sys.exit(f"anthropic call failed ({status}): {raw[:500]!r}")
+    resp = json.loads(raw)
+    text = "".join(b["text"] for b in resp["content"] if b["type"] == "text").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.DOTALL)
+    parsed = json.loads(text)
+    if "error" in parsed:
+        sys.exit(f"synthesis agent declined: {parsed['error']}")
+    return parsed
+
+
+def render_synthesis_memo(memo, domain, today, source_slugs):
+    refs = "\n".join(f"  - {s}" for s in source_slugs) if source_slugs else "  []"
+    where_lines = "\n".join(
+        f"- **`{w['source_slug']}`** — {w['how']}" for w in memo.get("where_it_shows_up", [])
+    )
+    contradictions = memo.get("contradictions") or []
+    if contradictions:
+        contra_lines = "\n".join(
+            f"- {c['summary']}  \n  *Between:* {', '.join(f'`{s}`' for s in c['between'])}"
+            for c in contradictions
+        )
+        contra_section = f"## Contradictions or tensions\n{contra_lines}\n\n"
+    else:
+        contra_section = ""
+    next_moves = memo.get("candidate_next_moves") or []
+    next_lines = "\n".join(f"- {m}" for m in next_moves) if next_moves else "- _none surfaced_"
+
+    body = (
+        f"# {memo['title']}\n\n"
+        f"## Thesis\n{memo['thesis']}\n\n"
+        f"## The pattern\n{memo['pattern']}\n\n"
+        f"## Where it shows up\n{where_lines}\n\n"
+        f"{contra_section}"
+        f"## Implications\n{memo['implications']}\n\n"
+        f"## Candidate next moves\n{next_lines}\n"
+    )
+    fm = (
+        "---\n"
+        f"title: \"{memo['title'].replace(chr(34), chr(92)+chr(34))}\"\n"
+        f"slug: {memo['slug']}\n"
+        f"kind: synthesis-memo\n"
+        f"status: draft\n"
+        f"created_at: {today}\n"
+        f"reviewed_at: {today}\n"
+        f"review_frequency: once\n"
+        f"source_refs:\n{refs}\n"
+        f"domains:\n  - {domain}\n"
+        f"confidence: {memo.get('confidence', 'emerging')}\n"
+        f"superseded_by: null\n"
+        f"tags: []\n"
+        "---\n\n"
+    )
+    return fm + body
+
+
+def render_framework_candidate(fw, domain, today, source_slugs):
+    refs = "\n".join(f"  - {s}" for s in source_slugs) if source_slugs else "  []"
+    elements = "\n".join(f"- **{e['label']}** — {e['explanation']}" for e in fw.get("elements", []))
+    body = (
+        f"# {fw['name']}\n\n"
+        f"## What it is\n{fw['what_it_is']}\n\n"
+        f"## Elements\n{elements}\n\n"
+        f"## Rationale\n{fw['rationale']}\n"
+    )
+    fm = (
+        "---\n"
+        f"title: \"{fw['name'].replace(chr(34), chr(92)+chr(34))}\"\n"
+        f"slug: {fw['slug']}\n"
+        f"kind: framework\n"
+        f"status: draft\n"
+        f"created_at: {today}\n"
+        f"reviewed_at: {today}\n"
+        f"review_frequency: annually\n"
+        f"source_refs:\n{refs}\n"
+        f"domains:\n  - {domain}\n"
+        f"confidence: medium\n"
+        f"superseded_by: null\n"
+        f"tags: []\n"
+        "---\n\n"
+    )
+    return fm + body
+
+
+def render_recommendation(rec, domain, today, source_slugs):
+    refs = "\n".join(f"  - {s}" for s in source_slugs[:5]) if source_slugs else "  []"
+    body = (
+        f"# {rec['what']}\n\n"
+        f"## What\n{rec['what']}\n\n"
+        f"## Why\n{rec['why']}\n\n"
+        f"## Where it lands\n- (synthesis output; route during triage)\n\n"
+        f"## Suggested approach\n_(effort: {rec.get('effort','medium')})_\n"
+    )
+    full_slug = f"{today}-gap-{rec['slug']}"
+    fm = (
+        "---\n"
+        f"title: \"{rec['what'].replace(chr(34), chr(92)+chr(34))}\"\n"
+        f"slug: {full_slug}\n"
+        f"kind: recommendation\n"
+        f"status: open\n"
+        f"created_at: {today}\n"
+        f"created_by: synthesis-agent\n"
+        f"effort: {rec.get('effort','medium')}\n"
+        f"agent_runnable: partial\n"
+        f"related_docs:\n{refs}\n"
+        f"domains:\n  - {domain}\n"
+        f"notion_task_id: null\n"
+        "---\n\n"
+    )
+    return full_slug, fm + body
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("domain", help="domain slug, e.g. brand-content-strategy")
+    p.add_argument("--lab-root", default="/Users/edmundmitchell/Documents/Claude/Projects/EM Research Lab")
+    p.add_argument("--dry-run", action="store_true")
+    args = p.parse_args()
+
+    lab_root = Path(args.lab_root).resolve()
+    env = load_env()
+
+    print(f"domain: {args.domain}")
+    print("fetching source-notes…")
+    sources = fetch_source_notes(env, args.domain)
+    print(f"  {len(sources)} source-note(s)")
+    if len(sources) < 3:
+        sys.exit("need at least 3 source-notes in atlas to synthesize")
+
+    print("fetching observations…")
+    obs = fetch_observations(env, args.domain)
+    print(f"  {len(obs)} observation(s)")
+
+    source_slugs = [s["slug"] for s in sources]
+
+    sources_block = "\n\n".join(
+        f"### slug: {s['slug']}\n### title: {s['title']}\n\n{s['body']}"
+        for s in sources
+    )
+    obs_block = "\n".join(
+        f"- [{o['kind']}] {o['body']} (sources: {','.join((o.get('metadata') or {}).get('source_refs', []))})"
+        for o in obs
+    )
+
+    print("loading agent instructions…")
+    prompt_template = load_agent_prompt(lab_root, "synthesis-agent.md")
+    print("calling claude…")
+    result = call_claude(env, prompt_template.format(
+        domain_brief=DOMAIN_BRIEF,
+        domain=args.domain,
+        n_sources=len(sources),
+        n_obs=len(obs),
+        source_notes_block=sources_block,
+        observations_block=obs_block,
+    ))
+
+    today = date.today().isoformat()
+    memo = result.get("synthesis_memo")
+    fw = result.get("candidate_framework")
+    recs = result.get("recommendations") or []
+
+    if not memo:
+        sys.exit("no synthesis_memo returned")
+
+    print(f"\nsynthesis_memo slug:    {memo['slug']}")
+    print(f"thesis:                 {memo['thesis']}")
+    print(f"sources referenced:     {len(memo.get('where_it_shows_up', []))}")
+    if fw:
+        print(f"candidate_framework:    {fw['slug']} — {fw['name']}")
+    print(f"recommendations:        {len(recs)}")
+
+    if args.dry_run:
+        print("\n[dry-run] no files written.")
+        return
+
+    inbox_proposed = lab_root / "inbox" / "proposed"
+    inbox_proposed.mkdir(parents=True, exist_ok=True)
+    inbox = lab_root / "inbox"
+
+    written = []
+
+    # synthesis memo → inbox/proposed/
+    memo_path = inbox_proposed / f"{memo['slug']}.md"
+    if memo_path.exists():
+        sys.exit(f"collision: {memo_path.relative_to(lab_root)} exists")
+    memo_path.write_text(render_synthesis_memo(memo, args.domain, today, source_slugs))
+    written.append(memo_path)
+
+    # framework candidate → inbox/proposed/
+    if fw:
+        fw_path = inbox_proposed / f"{fw['slug']}.md"
+        if fw_path.exists():
+            sys.exit(f"collision: {fw_path.relative_to(lab_root)} exists")
+        fw_path.write_text(render_framework_candidate(fw, args.domain, today, source_slugs))
+        written.append(fw_path)
+
+    # recommendations → inbox/ (no staging)
+    for rec in recs:
+        full_slug, content = render_recommendation(rec, args.domain, today, source_slugs)
+        rec_path = inbox / f"{full_slug}.md"
+        if rec_path.exists():
+            print(f"  skip (exists): {rec_path.relative_to(lab_root)}")
+            continue
+        rec_path.write_text(content)
+        written.append(rec_path)
+
+    print(f"\n✓ wrote {len(written)} file(s):")
+    for p in written:
+        print(f"  {p.relative_to(lab_root)}")
+    print("\nReview drafts in inbox/proposed/, then promote with `lab-promote <slug>`.")
+    print("Recommendations in inbox/ can be triaged manually.")
+
+
+if __name__ == "__main__":
+    main()

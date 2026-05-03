@@ -1,0 +1,559 @@
+#!/usr/bin/env python3
+"""
+lab-make-source-note-from-paper — synthesize a source-note from an
+already-ingested `kind: paper` doc in knowledge-atlas/documents/.
+
+Two auth modes:
+  - **default (Max-routed):** uses claude-agent-sdk, which spawns the
+    Claude Code CLI bundled with the SDK. Inherits the user's existing
+    Claude Code login (Pro/Max) — billed against the 5-hour rolling
+    quota. No ANTHROPIC_API_KEY needed. Works in non-interactive
+    contexts (cron, background scripts) as long as the CLI is logged in.
+  - **--api-key (direct API):** uses ANTHROPIC_API_KEY from
+    ~/factory/ops/.env (pay-per-token). Right for big batches that
+    would otherwise hit Max overage anyway.
+
+Pipeline:
+  1. Load paper from `knowledge-atlas/documents/<slug>.md` (frontmatter + body).
+  2. Load synthesis prompt from `research/04-agent-instructions/paper-reader-synthesis-agent.md`.
+  3. Send to Claude (SDK or API) → JSON note.
+  4. Render note + bibliographic snapshot + citations.
+  5. Stage `inbox/proposed/<slug>-note.md` and a Supabase reference_docs row.
+
+Usage:
+  lab-make-source-note-from-paper <paper-slug> [--domain <slug>] [--api-key]
+                                  [--lab-root PATH] [--model <name>]
+"""
+
+from __future__ import annotations
+import os, sys
+from pathlib import Path
+
+# ---- auto-venv re-exec (claude-agent-sdk + pyyaml live in the lab venv) ----
+_LAB_DEFAULT_ROOT = Path("/Users/edmundmitchell/Documents/Claude/Projects/EM Research Lab")
+def _ensure_lab_venv() -> None:
+    if os.environ.get("LAB_MAKE_SOURCE_NOTE_REEXEC") == "1":
+        return
+    venv_dir = Path(os.environ.get("LAB_VENV") or (_LAB_DEFAULT_ROOT / ".venv"))
+    venv_py = venv_dir / "bin" / "python3"
+    if not venv_py.is_file():
+        return
+    if Path(sys.prefix) == venv_dir:
+        return
+    os.environ["LAB_MAKE_SOURCE_NOTE_REEXEC"] = "1"
+    os.execv(str(venv_py), [str(venv_py), __file__] + sys.argv[1:])
+_ensure_lab_venv()
+
+import argparse, asyncio, json, re, shutil, tempfile, urllib.parse, urllib.request, urllib.error
+from datetime import date, datetime, timezone
+import yaml
+
+ENV_PATH = Path(os.environ.get("FACTORY_ENV", str(Path.home() / "factory/ops/.env")))
+
+DEFAULT_MODEL = "claude-opus-4-7"
+
+DOMAIN_BRIEF = """Edmund is a Catholic content creator (Cordial Catholics on YouTube),
+AI agent builder (Gravity Claw), and brand/content strategy consultant
+(Digital Continent — clients include CFCS, Liv Harrison, Culture Project).
+Edmund cares about transferable principles, not single-tactic hacks. The
+domain context affects only the `why_relevant` section — every other field
+must be a faithful extraction from the paper itself."""
+
+
+# ---- env loading -----------------------------------------------------------
+
+def load_env(require_api_key: bool) -> dict:
+    if not ENV_PATH.exists():
+        sys.exit(f"env file not found: {ENV_PATH}")
+    env = {}
+    for line in ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip().strip('"').strip("'")
+    needed = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
+    if require_api_key:
+        needed.append("ANTHROPIC_API_KEY")
+    for r in needed:
+        if not env.get(r):
+            sys.exit(f"missing required env: {r}")
+    return env
+
+
+# ---- HTTP / Supabase -------------------------------------------------------
+
+def http(method: str, url: str, headers: dict, body=None) -> tuple[int, bytes]:
+    data = None
+    if body is not None:
+        data = body if isinstance(body, (bytes, bytearray)) else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def sb_headers(env: dict) -> dict:
+    return {
+        "apikey": env["SUPABASE_SERVICE_ROLE_KEY"],
+        "Authorization": f"Bearer {env['SUPABASE_SERVICE_ROLE_KEY']}",
+        "Content-Type": "application/json",
+    }
+
+
+def insert_reference_doc(env: dict, row: dict) -> str:
+    headers = {**sb_headers(env), "Prefer": "return=representation"}
+    status, body = http("POST", f"{env['SUPABASE_URL']}/rest/v1/reference_docs", headers, body=row)
+    if status not in (200, 201):
+        raise RuntimeError(f"reference_docs insert failed ({status}): {body[:500]!r}")
+    return json.loads(body)[0]["id"]
+
+
+def delete_reference_doc_by_slug(env: dict, slug: str) -> None:
+    url = f"{env['SUPABASE_URL']}/rest/v1/reference_docs?slug=eq.{urllib.parse.quote(slug)}"
+    http("DELETE", url, sb_headers(env))
+
+
+# ---- agent prompt loading --------------------------------------------------
+
+PROMPT_RE = re.compile(r"## Prompt\b.*?\n```[^\n]*\n(.*?)\n```", re.DOTALL)
+
+
+def load_synthesis_prompt(lab_root: Path) -> str:
+    path = lab_root / "research" / "04-agent-instructions" / "paper-reader-synthesis-agent.md"
+    if not path.is_file():
+        sys.exit(f"agent instructions not found: {path}")
+    m = PROMPT_RE.search(path.read_text())
+    if not m:
+        sys.exit(f"no ## Prompt fenced block in {path}")
+    return m.group(1)
+
+
+# ---- model calls -----------------------------------------------------------
+
+def call_claude_api(env: dict, prompt: str, model: str) -> dict:
+    """Direct Anthropic API via ANTHROPIC_API_KEY (pay-per-token)."""
+    body = {
+        "model": model,
+        "max_tokens": 16384,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "x-api-key": env["ANTHROPIC_API_KEY"],
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    status, raw = http("POST", "https://api.anthropic.com/v1/messages", headers, body)
+    if status != 200:
+        sys.exit(f"anthropic API call failed ({status}): {raw[:500]!r}")
+    resp = json.loads(raw)
+    text = "".join(b["text"] for b in resp["content"] if b["type"] == "text").strip()
+    return _parse_json_response(text)
+
+
+def call_claude_sdk(prompt: str, model: str) -> dict:
+    """Agent SDK route — uses bundled Claude Code CLI's existing login.
+    Routes through Max plan quota (5-hour rolling). No API key needed."""
+    try:
+        from claude_agent_sdk import query, ClaudeAgentOptions
+    except ImportError:
+        sys.exit("claude-agent-sdk not installed in lab venv. Try: pip install claude-agent-sdk")
+
+    async def _run() -> str:
+        # Disable all tools — we just want a single prompt → response, no agent loop.
+        opts = ClaudeAgentOptions(
+            model=model,
+            max_turns=1,
+            allowed_tools=[],          # block tool use; force a single text reply
+        )
+        text_chunks: list[str] = []
+        async for msg in query(prompt=prompt, options=opts):
+            cls = type(msg).__name__
+            if cls == "AssistantMessage":
+                for block in getattr(msg, "content", []) or []:
+                    if hasattr(block, "text") and block.text:
+                        text_chunks.append(block.text)
+            elif cls == "ResultMessage":
+                if getattr(msg, "is_error", False):
+                    raise RuntimeError(f"Agent SDK reported error: {msg}")
+        return "".join(text_chunks).strip()
+
+    text = asyncio.run(_run())
+    if not text:
+        sys.exit("Agent SDK returned empty response")
+    return _parse_json_response(text)
+
+
+def _parse_json_response(text: str) -> dict:
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.DOTALL).strip()
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        # Agent SDK occasionally appends extra content (a second JSON pass, prose,
+        # whitespace) after a complete object. raw_decode() extracts just the
+        # first JSON value and ignores trailing content.
+        try:
+            parsed, _end = json.JSONDecoder().raw_decode(text.lstrip())
+        except json.JSONDecodeError as e:
+            Path("/tmp/lab-source-note-raw.txt").write_text(text)
+            sys.exit(f"non-JSON response (saved to /tmp/lab-source-note-raw.txt): {e}\n---\n{text[:800]}")
+    if "error" in parsed:
+        sys.exit(f"agent declined: {parsed['error']}")
+    return parsed
+
+
+# ---- frontmatter + citation rendering -------------------------------------
+
+FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def parse_paper_doc(paper_path: Path) -> tuple[dict, str]:
+    text = paper_path.read_text()
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        sys.exit(f"paper doc has no frontmatter: {paper_path}")
+    fm = yaml.safe_load(m.group(1)) or {}
+    body = text[m.end():]
+    return fm, body
+
+
+def _last_name(name: str) -> str:
+    return name.split(",", 1)[0].strip() if name else ""
+
+
+def _apa_name(name: str) -> str:
+    if "," not in name:
+        return name.strip()
+    last, first = name.split(",", 1)
+    first = first.strip()
+    if not first:
+        return last.strip()
+    initials = " ".join(p[0].upper() + "." for p in first.replace(".", " ").split() if p)
+    return f"{last.strip()}, {initials}".rstrip(", ")
+
+
+def build_citations(paper_fm: dict, title: str) -> tuple[str, str]:
+    paper = paper_fm.get("paper") or {}
+    authors = paper.get("authors") or []
+    year = paper.get("year")
+    venue = paper.get("venue") or ""
+    arxiv = paper.get("arxiv_id")
+    doi = paper.get("doi")
+    url = (paper_fm.get("source") or {}).get("url")
+
+    # Long form
+    apa_authors = [_apa_name(a.get("name", "")) for a in authors if a.get("name")]
+    if not apa_authors:
+        author_long = "Anon."
+    elif len(apa_authors) == 1:
+        author_long = apa_authors[0]
+    elif len(apa_authors) <= 3:
+        author_long = ", ".join(apa_authors[:-1]) + ", & " + apa_authors[-1]
+    else:
+        author_long = f"{apa_authors[0]}, et al."
+
+    long_parts = [f"{author_long} ({year})." if year else f"{author_long}."]
+    long_parts.append(f"*{title}*.")
+    if venue:
+        long_parts.append(f"{venue}.")
+    if arxiv:
+        long_parts.append(f"https://arxiv.org/abs/{arxiv}")
+    elif doi:
+        long_parts.append(f"https://doi.org/{doi}")
+    elif url:
+        long_parts.append(url)
+    citation_long = " ".join(long_parts)
+
+    # Short form
+    last_names = [_last_name(a.get("name", "")) for a in authors if a.get("name")]
+    if not last_names:
+        author_short = "Anon."
+    elif len(last_names) == 1:
+        author_short = last_names[0]
+    elif len(last_names) == 2:
+        author_short = f"{last_names[0]} & {last_names[1]}"
+    else:
+        author_short = f"{last_names[0]} et al."
+    citation_short = f"{author_short} ({year})" if year else author_short
+
+    return citation_short, citation_long
+
+
+def render_attribution(paper_fm: dict, today: str, citation_short: str, citation_long: str, model_used: str, auth_mode: str) -> str:
+    paper = paper_fm.get("paper") or {}
+    authors = paper.get("authors") or []
+    year = paper.get("year")
+    venue = paper.get("venue") or ""
+    arxiv = paper.get("arxiv_id")
+    doi = paper.get("doi")
+
+    def _fmt_author(a):
+        name = a.get("name", "")
+        aff = a.get("affiliation")
+        return f"{name} ({aff})" if aff else name
+
+    authors_str = "; ".join(_fmt_author(a) for a in authors) or "—"
+    pub_bits = []
+    if venue: pub_bits.append(venue)
+    if year: pub_bits.append(f"({year})")
+    pub_str = " ".join(pub_bits) if pub_bits else "—"
+    if arxiv: pub_str += f" · [arXiv:{arxiv}](https://arxiv.org/abs/{arxiv})"
+    elif doi: pub_str += f" · doi:{doi}"
+
+    return (
+        f"**Authors:** {authors_str}  \n"
+        f"**Published:** {pub_str}  \n"
+        f"**Source note created:** {today} (via {model_used}, {auth_mode})  \n"
+        f"**Cite as (long):** {citation_long}  \n"
+        f"**Cite as (short):** {citation_short}\n"
+    )
+
+
+def render_outline(nodes, depth=0) -> list[str]:
+    out = []
+    for n in nodes or []:
+        item = (n.get("item") or "").strip()
+        if not item:
+            continue
+        out.append("  " * depth + f"- {item}")
+        out.extend(render_outline(n.get("children") or [], depth + 1))
+    return out
+
+
+def render_note_body(note: dict, attribution: str) -> str:
+    lines = [f"# {note['title']}\n", attribution]
+    lines.append("## Thesis"); lines.append(note["thesis"].strip() + "\n")
+    lines.append("## Why this is relevant"); lines.append(note["why_relevant"].strip() + "\n")
+    lines.append("## Summary"); lines.append(note["summary"].strip() + "\n")
+    if note.get("methodology"):
+        lines.append("## Methodology"); lines.append(note["methodology"].strip() + "\n")
+    if note.get("outline"):
+        lines.append("## Outline"); lines.extend(render_outline(note["outline"])); lines.append("")
+    if note.get("frameworks"):
+        lines.append("## Frameworks")
+        for fw in note["frameworks"]:
+            lines.append(f"### {fw['name']}")
+            if fw.get("what_it_is"): lines.append(f"_{fw['what_it_is']}_\n")
+            for el in fw.get("elements", []):
+                lines.append(f"- **{el['label']}** — {el['explanation']}")
+            lines.append("")
+    if note.get("concepts"):
+        lines.append("## Concepts")
+        for c in note["concepts"]:
+            line = f"- **{c['name']}** — {c['definition']}"
+            if c.get("where"): line += f"  \n  *Where:* {c['where']}"
+            lines.append(line)
+        lines.append("")
+    if note.get("disciplines"):
+        lines.append("## Disciplines")
+        for d in note["disciplines"]:
+            lines.append(f"- **{d['name']}** — {d['description']}")
+        lines.append("")
+    if note.get("key_arguments"):
+        lines.append("## Key Arguments")
+        for a in note["key_arguments"]:
+            lines.append(f"- **{a['claim']}**")
+            lines.append(f"  - *Evidence:* {a['evidence']}")
+            if a.get("where"): lines.append(f"  - *Where:* {a['where']}")
+        lines.append("")
+    if note.get("important_quotes"):
+        lines.append("## Important Quotes")
+        for q in note["important_quotes"]:
+            lines.append(f"> \"{q['quote']}\"")
+            if q.get("timestamp"): lines.append(f"> — {q['timestamp']}")
+            lines.append("")
+    if note.get("sources_cited"):
+        lines.append("## Sources cited")
+        for s in note["sources_cited"]:
+            lines.append(f"- **{s['name']}** — {s['context']}")
+        lines.append("")
+    fu = note.get("possible_follow_ups") or {}
+    fu_items = [(k.replace("_", " ").title(), v) for k, v in fu.items() if v]
+    if fu_items:
+        lines.append("## Possible follow-ups")
+        for label, val in fu_items:
+            lines.append(f"- **{label}:** {val}")
+    return "\n".join(lines) + "\n"
+
+
+# ---- main -----------------------------------------------------------------
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("paper_slug", help="slug of an already-ingested paper in knowledge-atlas/documents/")
+    p.add_argument("--domain", help="lab domain slug (defaults to first domain on the paper doc)")
+    p.add_argument("--api-key", action="store_true",
+                   help="use direct Anthropic API (pay-per-token) instead of Agent SDK + Max")
+    p.add_argument("--lab-root", default=str(_LAB_DEFAULT_ROOT))
+    p.add_argument("--model", default=DEFAULT_MODEL)
+    args = p.parse_args()
+
+    env = load_env(require_api_key=args.api_key)
+    lab_root = Path(args.lab_root).resolve()
+    if not (lab_root / "knowledge-atlas").is_dir():
+        sys.exit(f"lab root not scaffolded: {lab_root}")
+
+    paper_path = lab_root / "knowledge-atlas" / "documents" / f"{args.paper_slug}.md"
+    if not paper_path.is_file():
+        sys.exit(f"paper not found in atlas: {paper_path.relative_to(lab_root)}")
+
+    paper_fm, paper_body = parse_paper_doc(paper_path)
+    if paper_fm.get("kind") != "paper":
+        sys.exit(f"expected kind=paper, got kind={paper_fm.get('kind')!r}")
+
+    today = date.today().isoformat()
+    note_slug = f"{args.paper_slug}-note"
+
+    # Domain: explicit arg → first domain on paper → fail
+    if args.domain:
+        domain = args.domain
+    else:
+        domains = paper_fm.get("domains") or []
+        if not domains:
+            sys.exit("paper has no domains; pass --domain explicitly")
+        domain = domains[0]
+
+    paper_title = paper_fm.get("title", args.paper_slug)
+    paper_meta = paper_fm.get("paper") or {}
+    authors_inline = ", ".join(a.get("name", "") for a in (paper_meta.get("authors") or []) if a.get("name")) or "(unknown)"
+    venue = paper_meta.get("venue") or "(unknown venue)"
+
+    print(f"paper:    {paper_title}")
+    print(f"authors:  {authors_inline}")
+    print(f"venue:    {venue}")
+    print(f"body:     {len(paper_body)} chars (~{len(paper_body)//4} tokens)")
+    print(f"domain:   {domain}")
+    print(f"auth:     {'direct API' if args.api_key else 'Agent SDK / Max'}")
+    print(f"model:    {args.model}")
+
+    # Collision check before paying for a synthesis call
+    final_path = lab_root / "inbox" / "proposed" / f"{note_slug}.md"
+    atlas_path = lab_root / "knowledge-atlas" / "documents" / f"{note_slug}.md"
+    if final_path.exists() or atlas_path.exists():
+        sys.exit(f"collision: {note_slug} already exists; remove it first.")
+
+    # Build prompt
+    prompt_template = load_synthesis_prompt(lab_root)
+    prompt = prompt_template.format(
+        domain_brief=DOMAIN_BRIEF,
+        domain=domain,
+        title=paper_title,
+        slug=args.paper_slug,
+        authors=authors_inline,
+        venue=venue,
+        body=paper_body,
+    )
+
+    # Call model
+    print(f"calling claude…")
+    if args.api_key:
+        note = call_claude_api(env, prompt, args.model)
+    else:
+        note = call_claude_sdk(prompt, args.model)
+
+    # Validate slug
+    if note.get("slug") != note_slug:
+        # Auto-correct rather than failing — agents sometimes drift from the literal template.
+        print(f"  (agent returned slug={note.get('slug')!r}; forcing {note_slug!r})")
+        note["slug"] = note_slug
+
+    # Build frontmatter
+    citation_short, citation_long = build_citations(paper_fm, note["title"])
+    auth_mode = "direct API" if args.api_key else "Max-routed"
+
+    fm_out = {
+        "title": note["title"],
+        "slug": note_slug,
+        "kind": "source-note",
+        "status": "draft",
+        "created_at": today,
+        "reviewed_at": None,
+        "review_frequency": "on-new-source",
+        "source_refs": [args.paper_slug],
+        "domains": [domain],
+        "agreement_level": note["agreement_level"],
+        "confidence": note["confidence"],
+        "source_strength": note["source_strength"],
+        "superseded_by": None,
+        "tags": note.get("tags", []),
+        "source": {
+            "type": "paper",
+            "url": (paper_fm.get("source") or {}).get("url"),
+            "paper_slug": args.paper_slug,
+            "authors": paper_meta.get("authors") or [],
+            "affiliations_summary": paper_meta.get("affiliations_summary") or [],
+            "year": paper_meta.get("year"),
+            "venue": paper_meta.get("venue"),
+            "venue_type": paper_meta.get("venue_type"),
+            "doi": paper_meta.get("doi"),
+            "arxiv_id": paper_meta.get("arxiv_id"),
+            "synthesized_by": args.model,
+            "auth_mode": auth_mode,
+            "citation": {"short": citation_short, "long": citation_long},
+        },
+    }
+
+    attribution = render_attribution(paper_fm, today, citation_short, citation_long, args.model, auth_mode)
+    body_md = render_note_body(note, attribution)
+
+    yaml_text = yaml.safe_dump(fm_out, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10000).rstrip()
+    rendered = f"---\n{yaml_text}\n---\n\n{body_md}"
+
+    # Stage filesystem
+    staging = Path(tempfile.mkdtemp(prefix="lab-source-note-paper-"))
+    staged = staging / f"{note_slug}.md"
+    staged.write_text(rendered)
+
+    # Insert Supabase row
+    row = {
+        "slug": note_slug,
+        "title": note["title"],
+        "body": rendered,
+        "kind": "source-note",
+        "lab_zone": "inbox",
+        "status": "draft",
+        "source_refs": [args.paper_slug],
+        "reviewed_at": None,
+        "review_frequency": "on-new-source",
+        "metadata": {
+            "domains": [domain],
+            "agreement_level": note["agreement_level"],
+            "confidence": note["confidence"],
+            "tags": note.get("tags") or [],
+            "paper_slug": args.paper_slug,
+            "synthesized_by": args.model,
+            "auth_mode": auth_mode,
+            "staged_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    print("inserting reference_docs row…")
+    try:
+        ref_id = insert_reference_doc(env, row)
+    except Exception as e:
+        shutil.rmtree(staging, ignore_errors=True)
+        sys.exit(f"supabase insert failed: {e}")
+    print(f"ref_id:   {ref_id}")
+
+    # Move staged file into inbox/proposed/
+    try:
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(staged), str(final_path))
+    except Exception as e:
+        delete_reference_doc_by_slug(env, note_slug)
+        shutil.rmtree(staging, ignore_errors=True)
+        sys.exit(f"filesystem move failed; rolled back Supabase row: {e}")
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    print(f"\n✓ staged in inbox:")
+    print(f"  {final_path.relative_to(lab_root)}")
+    print(f"  reference_docs.id = {ref_id}  (lab_zone=inbox, status=draft)")
+    print(f"\nReview the file. When ready, promote to atlas:")
+    print(f"  lab-promote {note_slug}")
+
+
+if __name__ == "__main__":
+    main()

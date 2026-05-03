@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
-lab-validate — sanity-check every _meta.yaml in the EM Research Lab folder.
+lab-validate — sanity-check YAML frontmatter in lab markdown docs.
 
-Walks the lab tree, reads every _meta.yaml, enforces required fields, blocks
-docs that should have source_refs but don't. Exit code 0 = clean, nonzero = at
-least one violation.
+Walks structured zones (knowledge-atlas/documents, ip/documents,
+research/02-synthesis, research/03-candidates), reads YAML frontmatter from
+every .md file, enforces required fields, blocks docs that should have
+source_refs but don't. Exit code 0 = clean, nonzero = at least one violation.
+
+Files in /inbox/, /research/00-working/, /research/01-observations/, sources/,
+and archive/ are not validated (free-form / registry / scratch zones).
 
 Designed to be installed as a git pre-commit hook in the em-research-lab repo:
     cp ops/bin/lab-validate ~/Documents/Claude/Projects/EM Research Lab/.git/hooks/pre-commit
@@ -53,6 +57,7 @@ KINDS_EXEMPT_FROM_SOURCE_REFS = {
     "recommendation",
     "sop",
     "source-summary",  # the bibliographic registry entry itself
+    "paper",           # the paper IS the source — referenced by source-notes, not a referencer
 }
 
 VALID_STATUS = {"current", "draft", "stale", "archived"}
@@ -67,29 +72,51 @@ DEFAULT_LAB_ROOT = Path.home() / "Documents/Claude/Projects/EM Research Lab"
 # Validation
 # ---------------------------------------------------------------------------
 
-def find_meta_files(root: Path) -> list[Path]:
-    """All _meta.yaml files under root, excluding archive/."""
+VALIDATED_ZONES = (
+    "inbox/proposed",
+    "knowledge-atlas/documents",
+    "ip/documents",
+    "research/02-synthesis",
+    "research/03-candidates",
+)
+
+FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def find_doc_files(root: Path) -> list[Path]:
+    """All .md files under the validated zones, excluding archive/."""
     out = []
-    for p in root.rglob("_meta.yaml"):
-        # skip archive paths — archived docs aren't subject to live validation
-        if any(part == "archive" for part in p.relative_to(root).parts):
+    for zone in VALIDATED_ZONES:
+        zone_dir = root / zone
+        if not zone_dir.is_dir():
             continue
-        out.append(p)
+        for p in zone_dir.rglob("*.md"):
+            rel_parts = p.relative_to(root).parts
+            if any(part == "archive" for part in rel_parts):
+                continue
+            # Skip READMEs, _index.md, and template files
+            if p.name.lower() in ("readme.md", "_index.md"):
+                continue
+            out.append(p)
     return out
 
 
 def load_meta(path: Path) -> dict | str:
-    """Load a _meta.yaml; on parse error returns an error string."""
+    """Parse YAML frontmatter from a markdown file. Returns error string on failure."""
     try:
-        with path.open() as f:
-            data = yaml.safe_load(f)
-        if not isinstance(data, dict):
-            return f"_meta.yaml is not a YAML mapping (got {type(data).__name__})"
-        return data
-    except yaml.YAMLError as e:
-        return f"YAML parse error: {e}"
+        text = path.read_text()
     except OSError as e:
         return f"read error: {e}"
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return "missing YAML frontmatter (file must start with `---` block)"
+    try:
+        data = yaml.safe_load(m.group(1))
+    except yaml.YAMLError as e:
+        return f"YAML frontmatter parse error: {e}"
+    if not isinstance(data, dict):
+        return f"frontmatter is not a YAML mapping (got {type(data).__name__})"
+    return data
 
 
 def validate_one(path: Path, meta: dict, all_slugs: set[str]) -> list[str]:
@@ -168,8 +195,8 @@ def validate_one(path: Path, meta: dict, all_slugs: set[str]) -> list[str]:
 
 
 def slug_for(path: Path, root: Path) -> str:
-    """Slug = the directory name containing the _meta.yaml (e.g. atlas/documents/foo/_meta.yaml -> foo)."""
-    return path.parent.name
+    """Slug = the markdown filename without extension (e.g. atlas/documents/foo.md -> foo)."""
+    return path.stem
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +216,7 @@ def main() -> int:
         sys.stderr.write(f"lab-validate: lab root does not exist: {root}\n")
         return 2
 
-    files = find_meta_files(root)
+    files = find_doc_files(root)
     metas: dict[Path, dict | str] = {p: load_meta(p) for p in files}
     all_slugs = {slug_for(p, root) for p in files}
 
@@ -215,7 +242,7 @@ def main() -> int:
         }, indent=2))
     else:
         if not files:
-            print(f"lab-validate: no _meta.yaml files under {root}")
+            print(f"lab-validate: no docs found under {root}")
             return 0
         if fail == 0:
             print(f"lab-validate: ok — {len(files)} file(s) checked, no violations")

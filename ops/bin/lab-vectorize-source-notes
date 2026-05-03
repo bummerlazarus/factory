@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+"""
+One-shot pipeline: backfill missing reference_docs rows + embed all source-notes
+via OpenAI text-embedding-3-small + insert into public.memory with
+source='paper-source-note' + cluster + label clusters via Gemini CLI + emit
+markdown report.
+
+Idempotent: skips slugs that already have memory rows; skips reference_docs
+inserts that already exist.
+"""
+from __future__ import annotations
+import json, os, re, subprocess, sys, urllib.parse, urllib.request, urllib.error
+from datetime import date, datetime, timezone
+from pathlib import Path
+from collections import defaultdict, Counter
+
+import yaml
+import numpy as np
+from scipy.cluster.hierarchy import linkage, fcluster
+from scipy.spatial.distance import squareform
+
+LAB = Path("/Users/edmundmitchell/Documents/Claude/Projects/EM Research Lab")
+INBOX = LAB / "inbox/proposed"
+ATLAS = LAB / "knowledge-atlas/documents"
+EMBED_MODEL = "text-embedding-3-small"
+EMBED_DIM = 1536
+MEMORY_SOURCE_VALUE = "paper-source-note"
+NAMESPACE = "knowledge"
+
+# ---- env ----
+env = {}
+for line in (Path.home() / "factory/ops/.env").read_text().splitlines():
+    if "=" in line and not line.strip().startswith("#"):
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip().strip('"').strip("'")
+
+for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENAI_API_KEY"):
+    if not env.get(k):
+        sys.exit(f"missing env: {k}")
+
+# ---- HTTP helpers ----
+def http(method: str, url: str, headers: dict, body=None) -> tuple[int, bytes]:
+    data = body if isinstance(body, (bytes, bytearray)) else (json.dumps(body).encode() if body is not None else None)
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+def sb_headers() -> dict:
+    return {
+        "apikey": env["SUPABASE_SERVICE_ROLE_KEY"],
+        "Authorization": f"Bearer {env['SUPABASE_SERVICE_ROLE_KEY']}",
+        "Content-Type": "application/json",
+    }
+
+# ---- discover source-notes ----
+FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+def parse_doc(path: Path) -> tuple[dict, str]:
+    text = path.read_text()
+    m = FRONTMATTER_RE.match(text)
+    fm = yaml.safe_load(m.group(1))
+    body = text[m.end():]
+    return fm, body
+
+notes: list[dict] = []
+for d in (INBOX, ATLAS):
+    if not d.is_dir():
+        continue
+    for f in sorted(d.iterdir()):
+        if not (f.suffix == ".md" and f.name.endswith("-note.md")):
+            continue
+        fm, body = parse_doc(f)
+        if fm.get("kind") != "source-note":
+            continue
+        # Only include paper source-notes (skip YouTube ones)
+        src = fm.get("source") or {}
+        if src.get("type") != "paper":
+            continue
+        notes.append({
+            "slug": fm["slug"],
+            "title": fm["title"],
+            "fm": fm,
+            "body": body,
+            "path": f,
+            "zone": "knowledge-atlas" if d == ATLAS else "inbox",
+        })
+
+print(f"discovered {len(notes)} paper source-notes on disk")
+
+# ---- backfill reference_docs ----
+status, raw = http("GET",
+    f"{env['SUPABASE_URL']}/rest/v1/reference_docs?select=slug&kind=eq.source-note&limit=200",
+    sb_headers())
+if status != 200:
+    sys.exit(f"reference_docs select failed: {status} {raw[:300]!r}")
+existing_slugs = {r["slug"] for r in json.loads(raw)}
+
+missing = [n for n in notes if n["slug"] not in existing_slugs]
+print(f"reference_docs missing: {len(missing)} → backfilling")
+
+for n in missing:
+    fm = n["fm"]
+    src = fm.get("source") or {}
+    row = {
+        "slug": n["slug"],
+        "title": n["title"],
+        "body": (n["path"]).read_text(),
+        "kind": "source-note",
+        "lab_zone": n["zone"],
+        "status": fm.get("status", "draft"),
+        "source_refs": fm.get("source_refs") or [],
+        "reviewed_at": None,
+        "review_frequency": fm.get("review_frequency"),
+        "metadata": {
+            "domains": fm.get("domains") or [],
+            "agreement_level": fm.get("agreement_level"),
+            "confidence": fm.get("confidence"),
+            "tags": fm.get("tags") or [],
+            "paper_slug": src.get("paper_slug"),
+            "synthesized_by": src.get("synthesized_by"),
+            "auth_mode": src.get("auth_mode") or "direct API",
+            "backfilled_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    s, raw = http("POST",
+        f"{env['SUPABASE_URL']}/rest/v1/reference_docs",
+        {**sb_headers(), "Prefer": "return=minimal"},
+        body=row)
+    if s not in (200, 201, 204):
+        print(f"  WARN {n['slug']}: {s} {raw[:200]!r}")
+    else:
+        print(f"  ✓ {n['slug']}")
+
+# ---- check existing memory rows for these slugs ----
+slugs_param = ",".join(f'"{n["slug"]}"' for n in notes)
+status, raw = http("GET",
+    f"{env['SUPABASE_URL']}/rest/v1/memory?select=metadata&source=eq.{MEMORY_SOURCE_VALUE}&limit=200",
+    sb_headers())
+already_indexed = set()
+if status == 200:
+    for r in json.loads(raw):
+        slug = ((r.get("metadata") or {}).get("slug"))
+        if slug:
+            already_indexed.add(slug)
+to_embed = [n for n in notes if n["slug"] not in already_indexed]
+print(f"memory already-indexed: {len(already_indexed)} | to-embed: {len(to_embed)}")
+
+# ---- embed via OpenAI ----
+def openai_embed(texts: list[str]) -> list[list[float]]:
+    body = {"model": EMBED_MODEL, "input": texts}
+    headers = {
+        "Authorization": f"Bearer {env['OPENAI_API_KEY']}",
+        "Content-Type": "application/json",
+    }
+    s, raw = http("POST", "https://api.openai.com/v1/embeddings", headers, body=body)
+    if s != 200:
+        sys.exit(f"openai embed failed ({s}): {raw[:500]!r}")
+    return [d["embedding"] for d in json.loads(raw)["data"]]
+
+# Build the text we embed: title + thesis + summary + frameworks + concepts + key arguments.
+# This focuses the embedding on the synthesis content rather than the boilerplate.
+def embed_text(n: dict) -> str:
+    fm = n["fm"]
+    body = n["body"]
+    parts = [n["title"]]
+    # Pull semantic sections from body
+    for header in ("## Thesis", "## Why this is relevant", "## Summary",
+                   "## Frameworks", "## Concepts", "## Key Arguments"):
+        m = re.search(rf"\n{re.escape(header)}\n(.*?)(?=\n## |\Z)", body, re.DOTALL)
+        if m:
+            parts.append(m.group(1).strip())
+    parts.append(" ".join(fm.get("tags") or []))
+    return "\n\n".join(parts)
+
+if to_embed:
+    print(f"embedding {len(to_embed)} notes via {EMBED_MODEL}…")
+    texts = [embed_text(n) for n in to_embed]
+    # Batch in groups of 20 to stay safe on token budgets per request
+    for i in range(0, len(to_embed), 20):
+        chunk = to_embed[i:i+20]
+        chunk_texts = texts[i:i+20]
+        embs = openai_embed(chunk_texts)
+        for n, e in zip(chunk, embs):
+            n["embedding"] = e
+
+# ---- insert into memory ----
+inserted = 0
+for n in to_embed:
+    fm = n["fm"]
+    src = fm.get("source") or {}
+    paper = src
+    row = {
+        "namespace": NAMESPACE,
+        "source": MEMORY_SOURCE_VALUE,
+        "content": n["body"][:60000],   # full note body, capped
+        "embedding": n["embedding"],
+        "metadata": {
+            "kind": "source-note",
+            "slug": n["slug"],
+            "title": n["title"],
+            "paper_slug": src.get("paper_slug"),
+            "domain": (fm.get("domains") or [None])[0],
+            "domains": fm.get("domains") or [],
+            "tags": fm.get("tags") or [],
+            "year": paper.get("year"),
+            "venue": paper.get("venue"),
+            "arxiv_id": paper.get("arxiv_id"),
+            "doi": paper.get("doi"),
+            "citation_short": (paper.get("citation") or {}).get("short"),
+            "citation_long": (paper.get("citation") or {}).get("long"),
+            "agreement_level": fm.get("agreement_level"),
+            "confidence": fm.get("confidence"),
+            "indexed_at": datetime.now(timezone.utc).isoformat(),
+            "embed_model": EMBED_MODEL,
+        },
+    }
+    s, raw = http("POST",
+        f"{env['SUPABASE_URL']}/rest/v1/memory",
+        {**sb_headers(), "Prefer": "return=minimal"},
+        body=row)
+    if s not in (200, 201, 204):
+        print(f"  WARN memory insert {n['slug']}: {s} {raw[:200]!r}")
+    else:
+        inserted += 1
+print(f"memory rows inserted: {inserted}")
+
+# ---- now pull all paper source-note vectors (including pre-existing) for clustering ----
+status, raw = http("GET",
+    f"{env['SUPABASE_URL']}/rest/v1/memory?select=metadata,embedding&source=eq.{MEMORY_SOURCE_VALUE}&limit=500",
+    sb_headers())
+if status != 200:
+    sys.exit(f"memory select failed: {status} {raw[:300]!r}")
+all_rows = json.loads(raw)
+print(f"loaded {len(all_rows)} vectors from memory for clustering")
+
+# Index by slug
+by_slug = {}
+for r in all_rows:
+    md = r.get("metadata") or {}
+    slug = md.get("slug")
+    if not slug:
+        continue
+    emb = r["embedding"]
+    if isinstance(emb, str):
+        emb = json.loads(emb)
+    by_slug[slug] = (md, np.asarray(emb, dtype=np.float32))
+
+slugs = sorted(by_slug.keys())
+X = np.stack([by_slug[s][1] for s in slugs])
+# Normalize for cosine
+X = X / np.linalg.norm(X, axis=1, keepdims=True)
+print(f"vector matrix: {X.shape}")
+
+# ---- cluster ----
+# Cosine distance matrix
+sim = X @ X.T
+np.clip(sim, -1, 1, out=sim)
+dist = 1.0 - sim
+np.fill_diagonal(dist, 0)
+
+# Hierarchical clustering with average linkage
+condensed = squareform(dist, checks=False)
+Z = linkage(condensed, method="average")
+# Force a fixed number of clusters. The corpus is tightly worded around AI/LLM
+# topics so distance-based cuts collapse to one mega-cluster. Maxclust gives
+# us a useful partition even when the corpus is semantically homogeneous.
+TARGET_CLUSTERS = 8
+labels = fcluster(Z, t=TARGET_CLUSTERS, criterion="maxclust")
+# Quick distance stats for the report
+upper_idx = np.triu_indices(len(slugs), k=1)
+distances_upper = dist[upper_idx]
+DIST_STATS = {
+    "min": float(distances_upper.min()),
+    "p25": float(np.percentile(distances_upper, 25)),
+    "median": float(np.median(distances_upper)),
+    "p75": float(np.percentile(distances_upper, 75)),
+    "max": float(distances_upper.max()),
+}
+print(f"distance stats: {DIST_STATS}")
+clusters: dict[int, list[str]] = defaultdict(list)
+for s, lab in zip(slugs, labels):
+    clusters[int(lab)].append(s)
+print(f"hierarchical clusters: {len(clusters)} (sizes: {sorted([len(v) for v in clusters.values()], reverse=True)})")
+
+# ---- top similarity pairs (potential synthesis pairs) ----
+n = len(slugs)
+pair_scores = []
+for i in range(n):
+    for j in range(i+1, n):
+        pair_scores.append((sim[i, j], i, j))
+pair_scores.sort(reverse=True)
+top_pairs = pair_scores[:15]
+
+# ---- cross-domain bridges (top similarity pairs from different domains) ----
+def domain_of(slug):
+    return (by_slug[slug][0].get("domain")) or "unknown"
+bridge_pairs = []
+for s, i, j in pair_scores:
+    if domain_of(slugs[i]) != domain_of(slugs[j]):
+        bridge_pairs.append((s, i, j))
+        if len(bridge_pairs) >= 12:
+            break
+
+# ---- label clusters via gemini CLI ----
+def label_cluster(member_slugs: list[str]) -> dict:
+    """Call gemini CLI to label a cluster. Returns {label, summary, theme_tags}."""
+    bullets = []
+    for s in member_slugs:
+        md = by_slug[s][0]
+        bullets.append(f"- {md.get('title')} [{md.get('domain')}] — tags: {', '.join((md.get('tags') or [])[:6])}")
+    member_block = "\n".join(bullets)
+    prompt = (
+        "You are labeling a cluster of academic-paper source-notes that are "
+        "semantically grouped together. Produce a JSON object with:\n"
+        '  "label": short noun phrase, ≤6 words, the cluster\'s theme\n'
+        '  "summary": 1–2 sentences describing what binds these papers\n'
+        '  "theme_tags": 3-5 short kebab-case tags\n\n'
+        "Members:\n" + member_block + "\n\n"
+        "Return ONLY the JSON object, no fences."
+    )
+    try:
+        res = subprocess.run(
+            ["gemini", "-m", "gemini-2.5-flash", "-p", prompt],
+            capture_output=True, text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        return {"label": f"Cluster of {len(member_slugs)}", "summary": "(gemini labeling timed out)", "theme_tags": []}
+    out = res.stdout.strip()
+    if out.startswith("```"):
+        out = re.sub(r"^```(?:json)?\s*|\s*```$", "", out, flags=re.DOTALL).strip()
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(out)
+        return obj
+    except Exception as e:
+        return {"label": f"Cluster of {len(member_slugs)}", "summary": f"(labeling failed: {e})", "theme_tags": []}
+
+print("labeling clusters via gemini-2.5-flash…")
+cluster_labels: dict[int, dict] = {}
+for cid, members in sorted(clusters.items(), key=lambda x: -len(x[1])):
+    if len(members) >= 2:
+        cluster_labels[cid] = label_cluster(members)
+        print(f"  cluster {cid} ({len(members)} members): {cluster_labels[cid].get('label')}")
+    else:
+        cluster_labels[cid] = {"label": "Singleton", "summary": "", "theme_tags": []}
+
+# ---- generate markdown report ----
+today = date.today().isoformat()
+report_path = LAB / "research" / "02-synthesis" / f"{today}-source-notes-vector-analysis.md"
+report_path.parent.mkdir(parents=True, exist_ok=True)
+
+lines = []
+lines.append("---")
+lines.append(f"title: Vector Analysis of Source Notes — {today}")
+lines.append(f"slug: {today}-source-notes-vector-analysis")
+lines.append("kind: synthesis-memo")
+lines.append("status: draft")
+lines.append(f"created_at: '{today}'")
+lines.append("reviewed_at: null")
+lines.append("review_frequency: once")
+lines.append("source_refs:")
+for s in slugs:
+    lines.append(f"- {s}")
+lines.append("domains:")
+for d in sorted({by_slug[s][0].get('domain') or 'unknown' for s in slugs}):
+    lines.append(f"- {d}")
+lines.append("confidence: emerging")
+lines.append("superseded_by: null")
+lines.append("tags:")
+lines.append("- vector-analysis")
+lines.append("- clustering")
+lines.append("- meta-synthesis")
+lines.append("---")
+lines.append("")
+lines.append(f"# Vector Analysis of Source Notes — {today}")
+lines.append("")
+lines.append(f"**Method:** OpenAI `text-embedding-3-small` embeddings of (title + thesis + summary + frameworks + concepts + key arguments) per source-note. Hierarchical clustering (avg linkage, cosine distance, fixed `k={TARGET_CLUSTERS}`).")
+lines.append("")
+lines.append(f"**Pairwise cosine-distance distribution** (lower = more similar): min {DIST_STATS['min']:.3f}, p25 {DIST_STATS['p25']:.3f}, median {DIST_STATS['median']:.3f}, p75 {DIST_STATS['p75']:.3f}, max {DIST_STATS['max']:.3f}. The whole corpus is semantically tight (everything is LLM/AI-adjacent), so distance-based cuts produce one mega-cluster — `k={TARGET_CLUSTERS}` is a forced partition that exposes the substructure.")
+lines.append("")
+lines.append(f"**Corpus:** {len(slugs)} paper source-notes across {len({by_slug[s][0].get('domain') or 'unknown' for s in slugs})} domains.")
+lines.append("")
+lines.append("## Domain breakdown")
+domain_counter = Counter(by_slug[s][0].get("domain") or "unknown" for s in slugs)
+for d, n_d in domain_counter.most_common():
+    lines.append(f"- **{d}**: {n_d}")
+lines.append("")
+
+lines.append("## Clusters")
+lines.append("")
+lines.append(f"Hierarchical clustering produced {len(clusters)} clusters. Sizes: {sorted([len(v) for v in clusters.values()], reverse=True)}.")
+lines.append("")
+
+for cid in sorted(clusters.keys(), key=lambda c: -len(clusters[c])):
+    members = clusters[cid]
+    info = cluster_labels.get(cid, {})
+    label = info.get("label") or f"Cluster {cid}"
+    summary = info.get("summary") or ""
+    theme_tags = info.get("theme_tags") or []
+    lines.append(f"### {label} ({len(members)} note{'s' if len(members)!=1 else ''})")
+    if summary:
+        lines.append(f"_{summary}_")
+    if theme_tags:
+        lines.append("")
+        lines.append("Theme tags: " + ", ".join(f"`{t}`" for t in theme_tags))
+    lines.append("")
+    # Domain composition
+    dc = Counter(by_slug[s][0].get("domain") or "unknown" for s in members)
+    if len(dc) > 1:
+        lines.append(f"_Cross-domain cluster: {dict(dc)}_")
+        lines.append("")
+    # Member list
+    for s in members:
+        md = by_slug[s][0]
+        cite = md.get("citation_short") or md.get("title")
+        domain = md.get("domain") or "?"
+        lines.append(f"- **[{md.get('title')}](../../inbox/proposed/{s}.md)** · {cite} · _{domain}_")
+    lines.append("")
+
+lines.append("## Top semantic pairs")
+lines.append("")
+lines.append("_Highest-similarity note pairs — likely synthesis-pair candidates._")
+lines.append("")
+lines.append("| Sim | Note A | Note B | Same domain? |")
+lines.append("|---|---|---|---|")
+for s, i, j in top_pairs[:12]:
+    a, b = slugs[i], slugs[j]
+    da, db = domain_of(a), domain_of(b)
+    same = "yes" if da == db else f"**no** ({da} ↔ {db})"
+    lines.append(f"| {s:.3f} | [{by_slug[a][0].get('citation_short') or a}](../../inbox/proposed/{a}.md) | [{by_slug[b][0].get('citation_short') or b}](../../inbox/proposed/{b}.md) | {same} |")
+lines.append("")
+
+lines.append("## Cross-domain bridges")
+lines.append("")
+lines.append("_Top similarity pairs spanning two different domains — places where synthesis across silos may be most fruitful._")
+lines.append("")
+lines.append("| Sim | Domain A | Note A | Domain B | Note B |")
+lines.append("|---|---|---|---|---|")
+for s, i, j in bridge_pairs:
+    a, b = slugs[i], slugs[j]
+    lines.append(f"| {s:.3f} | {domain_of(a)} | [{by_slug[a][0].get('citation_short') or a}](../../inbox/proposed/{a}.md) | {domain_of(b)} | [{by_slug[b][0].get('citation_short') or b}](../../inbox/proposed/{b}.md) |")
+lines.append("")
+
+lines.append("## Tag co-occurrence")
+lines.append("")
+lines.append("_Most common tags across the corpus — the macro topics our 39 papers gravitate to._")
+lines.append("")
+tag_counter = Counter()
+for s in slugs:
+    for t in (by_slug[s][0].get("tags") or []):
+        tag_counter[t] += 1
+for t, c in tag_counter.most_common(20):
+    lines.append(f"- `{t}` × {c}")
+lines.append("")
+
+lines.append("## How to query this corpus going forward")
+lines.append("")
+lines.append("All vectors live in `public.memory` with `source = 'paper-source-note'`. To query by topic, use the companion script:")
+lines.append("")
+lines.append("```bash")
+lines.append('lab-search-papers "your question here"')
+lines.append("```")
+lines.append("")
+lines.append("Filter to a domain or tag in the script via metadata filters (see source).")
+lines.append("")
+
+report_path.write_text("\n".join(lines))
+print(f"\n✓ report: {report_path.relative_to(LAB)}")
+print(f"  {len(lines)} lines, {len(clusters)} clusters labeled")

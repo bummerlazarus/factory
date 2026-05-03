@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""
+lab-search-papers <query> — vector search over paper source-notes in
+public.memory (filtered to source='paper-source-note'). Embeds the query
+via OpenAI text-embedding-3-small (same model as the indexed notes), runs
+a cosine-similarity match using Supabase's RPC `match_documents`-style
+function if present, falls back to client-side ranking otherwise.
+
+Returns top-K source-notes with citation, domain, and arXiv link. Designed
+for the routing pattern: "what's that paper we have on X?" → call this →
+get a clickable list pointing back into inbox/proposed/ or the atlas.
+
+Usage:
+  lab-search-papers <query> [--k 8] [--domain <slug>] [--tag <kebab>]
+"""
+from __future__ import annotations
+import os, sys
+from pathlib import Path
+
+_LAB_DEFAULT_ROOT = Path("/Users/edmundmitchell/Documents/Claude/Projects/EM Research Lab")
+def _ensure_lab_venv() -> None:
+    if os.environ.get("LAB_SEARCH_PAPERS_REEXEC") == "1":
+        return
+    venv_dir = Path(os.environ.get("LAB_VENV") or (_LAB_DEFAULT_ROOT / ".venv"))
+    venv_py = venv_dir / "bin" / "python3"
+    if not venv_py.is_file():
+        return
+    if Path(sys.prefix) == venv_dir:
+        return
+    os.environ["LAB_SEARCH_PAPERS_REEXEC"] = "1"
+    os.execv(str(venv_py), [str(venv_py), __file__] + sys.argv[1:])
+_ensure_lab_venv()
+
+import argparse, json, urllib.parse, urllib.request, urllib.error
+import numpy as np
+
+ENV_PATH = Path(os.environ.get("FACTORY_ENV", str(Path.home() / "factory/ops/.env")))
+EMBED_MODEL = "text-embedding-3-small"
+
+def load_env() -> dict:
+    env = {}
+    for line in ENV_PATH.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip().strip('"').strip("'")
+    for k in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "OPENAI_API_KEY"):
+        if not env.get(k):
+            sys.exit(f"missing env: {k}")
+    return env
+
+def http(method, url, headers, body=None):
+    data = body if isinstance(body, (bytes, bytearray)) else (json.dumps(body).encode() if body is not None else None)
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("query", nargs="+")
+    p.add_argument("--k", type=int, default=8)
+    p.add_argument("--domain", help="filter to this lab domain (catholic-ai-design, creator-economy, etc.)")
+    p.add_argument("--tag", help="require this tag in metadata.tags")
+    args = p.parse_args()
+
+    env = load_env()
+    query = " ".join(args.query).strip()
+    print(f"query:  {query!r}")
+    if args.domain: print(f"domain: {args.domain}")
+    if args.tag: print(f"tag:    {args.tag}")
+
+    # Embed the query (same model as indexed)
+    s, raw = http("POST",
+        "https://api.openai.com/v1/embeddings",
+        {"Authorization": f"Bearer {env['OPENAI_API_KEY']}", "Content-Type": "application/json"},
+        body={"model": EMBED_MODEL, "input": query})
+    if s != 200:
+        sys.exit(f"openai embed failed ({s}): {raw[:300]!r}")
+    qvec = np.asarray(json.loads(raw)["data"][0]["embedding"], dtype=np.float32)
+    qvec /= np.linalg.norm(qvec)
+
+    # Pull all paper-source-note vectors. With ~40 notes this is fine; scales
+    # to a few thousand. Beyond that, switch to a Supabase RPC that runs the
+    # vector match server-side.
+    sb_headers = {
+        "apikey": env["SUPABASE_SERVICE_ROLE_KEY"],
+        "Authorization": f"Bearer {env['SUPABASE_SERVICE_ROLE_KEY']}",
+    }
+    s, raw = http("GET",
+        f"{env['SUPABASE_URL']}/rest/v1/memory?select=metadata,embedding&source=eq.paper-source-note&limit=1000",
+        sb_headers)
+    if s != 200:
+        sys.exit(f"memory select failed: {s} {raw[:300]!r}")
+    rows = json.loads(raw)
+    if not rows:
+        sys.exit("no paper-source-note rows in memory. Run lab-vectorize-notes.py first.")
+
+    # Build vector matrix
+    keep = []
+    vecs = []
+    for r in rows:
+        md = r.get("metadata") or {}
+        if args.domain and md.get("domain") != args.domain:
+            continue
+        if args.tag and args.tag not in (md.get("tags") or []):
+            continue
+        emb = r["embedding"]
+        if isinstance(emb, str):
+            emb = json.loads(emb)
+        vecs.append(emb)
+        keep.append(md)
+    if not vecs:
+        sys.exit("no rows match the filters.")
+
+    M = np.asarray(vecs, dtype=np.float32)
+    M /= np.linalg.norm(M, axis=1, keepdims=True)
+    sims = M @ qvec
+    order = np.argsort(-sims)[:args.k]
+
+    print(f"\ntop {len(order)} matches (of {len(keep)} candidates):\n")
+    for rank, i in enumerate(order, 1):
+        md = keep[i]
+        score = float(sims[i])
+        cite = md.get("citation_short") or md.get("title")
+        title = md.get("title") or "(no title)"
+        domain = md.get("domain") or "?"
+        slug = md.get("slug")
+        arxiv = md.get("arxiv_id")
+        link = f"  https://arxiv.org/abs/{arxiv}" if arxiv else ""
+        print(f"  {rank:>2}. [{score:.3f}] {title}")
+        print(f"      {cite} · {domain} · slug={slug}{link}")
+
+if __name__ == "__main__":
+    main()

@@ -134,3 +134,48 @@ Decision grounded in the Hermes Agent audit (`04-audit/2026-04-17-hermes-agent-r
 5. **Always-true INSERT policies** on public form tables (`contact_submissions`, `lead_magnet_submissions`, `waitlist`, `scorecard_responses`). Not strictly wrong — they're acceptable for public form submission — but worth adding input validation or rate limits.
 
 **Leaning:** Do Q10 as a dedicated mini-phase before the dashboard goes public on Vercel. Not blocking for internal rewire work.
+
+---
+
+## Q11. Source-note generation — deterministic Python pipeline?
+
+**Surfaced 2026-04-30** while building the first guest-appearance source-note (`transcripts/2026-04-30-ep057-the-church-podcast-source-note.md`). I (Claude) invented an `agreement_level: self` value that doesn't exist in the registry — only `agree | partial | disagree` are real. The hand-written, in-conversation generation path is non-deterministic: enums get hallucinated, frontmatter shape drifts between notes, domain registry isn't enforced.
+
+**Question:** should source-note generation move to a deterministic Python pipeline analogous to `lab-make-source-note-from-paper` but specialized for podcasts/videos/guest-appearances? With:
+
+- A canonical schema file (YAML) defining valid values for `domains`, `agreement_level`, `confidence`, `source_strength.level`, `appearance.role`, `appearance.format`, `target_format`, `target_channel`.
+- Validation on write — reject unknown enum values rather than silently accept them.
+- Auto-detect `appearance` block from URL (e.g., if uploader ≠ Edmund's known channels → `is_appearance: true, role: guest`).
+- Auto-omit `agreement_level` when `appearance.subject == Edmund Mitchell`.
+
+**Leaning:** Yes, after Wave 4 ingest work stabilizes. Until then, hand-authored notes need a checklist or example template to copy from. See also [the Ep 057 source-note](../../transcripts/2026-04-30-ep057-the-church-podcast-source-note.md) as the reference shape we're standardizing.
+
+---
+
+## Q12. Where does Edmund's *own* content live? (Self-content registry)
+
+**Local-filesystem half resolved 2026-04-30** — `CEO cowork/Content Workspace/` is the canonical local home (subfolders `transcripts/`, `source-notes/`, `content-ideas/`, README documenting conventions). Section 4 of the System Index updated. The Supabase-mirror question below remains open.
+
+
+
+**Surfaced 2026-04-30.** The `knowledge-atlas/` is built for evaluating *other people's* sources (agreement_level, source_strength). Self-authored content (Cordial Catholics episodes, ZPM material, talks given, guest appearances on others' shows, Twitter threads, blog posts) is qualitatively different — agreement isn't meaningful, but provenance/format/channel-of-origin/republish-status matter.
+
+**Inventory of existing Supabase tables (2026-04-30):**
+
+| Table | Rows | What's there | Fits self-content? |
+|---|---|---|---|
+| `agent_youtube_videos` | 380 | YouTube metadata + transcript + `is_owned` flag | Partial — YouTube only; binary owned/not; doesn't capture guest-appearance role |
+| `posts` | 6 | CMS-style: slug, title, excerpt, content, status, lead_magnet_id | Partial — looks like blog/site posts only |
+| `content_items` | 209 | Has `competitor_id` FK | No — competitor intel, not self |
+| `dc_episodes` / `dc_youtube_assets` / `dc_ideas` | 3 / 1 / 8 | Digital Continent client production | No — client work |
+| `vault_files` | 16 | Generic file storage | No — file blobs, not content registry |
+| `reference_docs` | 273 | Source-notes (lab) | No — for external sources |
+| `memory` | 14,554 | Embedded chunks | Cross-cutting — chunks live here regardless |
+
+**Gap:** there's no canonical "Edmund's content registry" that unifies *across* channels (Cordial Catholics + ZPM + edmundmitchell.com + Twitter + guest appearances) with consistent fields like `original_publisher`, `publisher_owned_by_edmund: bool`, `appearance_role`, `format`, `published_at`, `transcript_path`, `derived_content_ideas`.
+
+**Question:** do we (a) extend `agent_youtube_videos` + `posts` schemas + add a `guest_appearances` table, (b) create a single new `self_content` table that supersedes those for self-authored material, or (c) add a `provenance` JSONB column on a unified content registry (factor `posts` and `agent_youtube_videos[is_owned=true]` into one)?
+
+**Leaning:** (b) — create a new `self_content` table as the canonical registry, keep `agent_youtube_videos` for the competitive-intel side, and migrate `posts` into it once schema stabilizes. The `appearance` block I designed for the source-note frontmatter (`role`, `subject`, `format`, `show`, `host`, `network`, `publisher`, `platform`) maps directly to columns. This is the natural home for transcripts of past guest appearances and self-recordings.
+
+**Related future build (Option B from the Ep 057 conversation):** content ideas should be promoted from inline arrays in source-notes to per-idea files (or rows) — `seeded_by[]`, `target_channel`, `status`, `assigned_to`, `next_action` — so a single idea can be seeded by multiple sources and tracked across the lifecycle from `idea` → `drafting` → `published`.

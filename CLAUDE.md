@@ -2,33 +2,43 @@
 
 This is Edmund's top-level working directory. It contains the in-progress rebuild of his personal/work AI stack, plus research and reference material.
 
+## Supabase project IDs (do NOT guess these)
+
+Every Supabase MCP call requires a `project_id`. There is no default. If you skip `list_projects` and invent a plausible-looking ref, Supabase returns a generic `MCP error -32600: You do not have permission to perform this action`, which looks like an auth bug but is actually a wrong-project error.
+
+| Project | `project_id` (ref) | Status |
+|---|---|---|
+| **em-edmund-mitchell** (skills registry, memory, ingest_runs — use this by default) | `obizmgugsqirmnjpirnh` | ACTIVE_HEALTHY |
+| IOC system | `gbckletkgxjconwxumcr` | INACTIVE (paused — call `restore_project` before querying) |
+
+Anything else is wrong. Verify with `list_projects` if unsure.
+
 > **Read this first: `~/Documents/Claude/Projects/CEO Cowork/00-SYSTEM-INDEX.md`.** That doc is the operating map for Edmund's whole stack — where memory lives, where skills live, where outputs go, what fires when. Anything structural that changes in factory/ should be reflected in its Changelog. If you're unsure where something belongs, check the index before guessing.
 
 ## Where things live
 
 | Path | What |
 |---|---|
-| `architecture-rebuild-2026-04-17/` | Stack rebuild notebook. **Pruned 2026-04-24** to active set; historical content under `archive/`. Read its `00-README.md` for layout. |
-| `dashboard/` | Sister repo ([bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)) cloned into `./dashboard/` and gitignored here. Supabase migration in progress at `dashboard/docs/superpowers/plans/2026-04-17-supabase-migration.md`. |
+| `dashboard/` | Sister repo ([bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)) cloned into `./dashboard/` and gitignored here. Deployed to Vercel as project `dashboard` (prod URL `dashboard-nine-delta-26.vercel.app`). |
 | `ops/bin/` | Ingest scripts. Every script writes to Supabase `public.ingest_runs` (migration 017) so failures are debuggable. |
-| `supabase/migrations/` | Numbered SQL migrations. Latest: `017_create_ingest_runs.sql` (2026-04-24). |
+| `ops/docs/` | Operational references: `capture-api.md`, `iphone-shortcuts-guide.md`, `specialist-spawn.md`. |
+| `ops/autonomy-charter.md` | Rules of engagement for autonomous runs. |
+| `ops/north-star.md` | Vision anchor — what "done" feels like for the stack. |
+| `supabase/migrations/` | Numbered SQL migrations. Latest: `020_table_registry.sql` (2026-05-02). |
+| `supabase/proposals/` | Live design proposals not yet executed (e.g. `table-registry.md`). |
 | `skills/` | Working subset of SKILL.md files. **Not** the source of truth — see Skills section below. |
 | `research/` | External reference material and cloned repos (read-only). `tool-guides/` has 20+ overview docs; `reference-repos/OB1-main/` for OB-1 patterns. |
-| `gravityclaw/` | (external: `/Users/edmundmitchell/gravityclaw/`) Legacy custom MCP server, slated for retirement. Read-only. |
+| `archive/architecture-rebuild-2026-04-17/` | **RETIRED 2026-05-02.** Frozen rebuild notebook. Read `RETIREMENT.md` for what shipped and where artifacts moved. Do not read for current state. |
 
-## Current focus: the rebuild
+## Stack shape (post-rebuild)
 
-Read `architecture-rebuild-2026-04-17/00-README.md` first. That folder is a living notebook — we add to it as decisions get made.
-
-The rebuild retires GravityClaw (custom Railway MCP) and moves to:
+The rebuild ran 2026-04-17 → 2026-04-26 and retired GravityClaw. Current architecture:
 - Claude-native features (scheduled tasks, Skills, Projects)
 - Native MCPs (Supabase, Notion, Firecrawl, Vercel)
 - Supabase Edge Functions for unique business logic
 - Single-table pgvector store at `public.memory` (replaced Pinecone)
 
-Wave 10 compression engine shipped 2026-04-19 (commit `a519da3` on `feat/compression-engine`). Architecture spec: `dashboard/docs/compression-engine.md`.
-
-**Guiding principle:** Edmund will not outbuild Anthropic. See `architecture-rebuild-2026-04-17/01-context/principles.md`.
+**Guiding principle:** Edmund will not outbuild Anthropic. See `ops/north-star.md`.
 
 ## Skills registry lives in THREE places
 
