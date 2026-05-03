@@ -1,5 +1,24 @@
 # Factory changelog
 
+## 2026-05-03 (later) — Phases 5 + 6 + 7 + polish + Lev path
+
+**B-batch polish:**
+- /inbox/[id] detail page: wired CaptureActions (Ask Cordis / Post Slack / Copy) above the descriptive panel
+- /inbox/promotions: thin curator-runs status strip (last run, items examined, next-run hint)
+- / : "captures today" tile linking to /inbox
+- /inbox row: line-clamp-3 so long pastes don't push other rows off-screen
+- Migration 029: codified `agent_conversations` as canonical, `sessions`+`agent_messages` as supporting (resolves Phase 1's loose-end ticket)
+
+**C — voice-memo Lev path:** drop-zone now accepts mp3/m4a/wav/webm/ogg → /api/inbox/voice → Whisper transcript → kind=voice work_log row. focus.md priority #3 first leg shipped (drag any audio onto /inbox; auto-transcribed).
+
+**A5 — delegate Edge Function:** server-side subroutine registry that returns one summary string. v1 tasks: `summarize_recent_captures`, `triage_pending_promotions`, `ingest_status_digest`. Wired into dashboard `lib/tools.ts` so any retrieve-capable agent can call `delegate({task: ...})`. Deliberately NOT arbitrary eval (service-role key risk); each task is auditable.
+
+**A6 — mixture-of-agents Edge Function:** fans a question to N OpenRouter models (Claude/GPT-4o/Gemini default) in parallel, runs synthesis pass, returns one consolidated answer with provenance in `votes`. Server-side equivalent of the three-brain skill. Wired as `mixture` tool.
+
+**A7 — full-duplex voice mode at `/voice`:** browser-only stack — Web Speech API for STT, SpeechSynthesis for TTS, existing `/api/chat` SSE endpoint for the agent loop. Sentence-by-sentence speech as the reply streams. Added to sidebar; surface map updated.
+
+**Sidebar drift system:** sync-agents.mjs now parses sidebar.tsx navItems and warns if any path is missing from `_shared/dashboard-surfaces.md`. Added /voice row to shared file; resynced all 8 user-facing agents.
+
 ## 2026-05-03 — Phases 2 + 3 + 4 (rev B) shipped
 
 **Phase 2 — Curator nudges.** Migration 028 adds `curator_runs` log + nightly pg_cron job (3am Central) that calls the new `curator_pass` Edge Function. Corva reads the last 24h of `work_log` + `ingest_runs` + `agent_conversations`, asks Claude (via OpenRouter) for 0–3 well-grounded skill proposals, writes them as `skill_versions` rows with `status='proposed'`. First real proposal landed (`7ed6568a-…`, youtube-ingest v2) with cited ingest_run IDs. Edmund sees them at `/inbox/promotions`.
