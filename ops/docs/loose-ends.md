@@ -1,29 +1,50 @@
 # Loose ends — convention
 
-**Date:** 2026-05-03
+**Date:** 2026-05-03 (revised same day after a UX failure: filed loose ends Edmund couldn't act on)
 **Status:** Active. Future Claude sessions: follow this when wrapping up.
 
-## TL;DR
+## Edmund's actual workflow (read this first)
 
-When a session ends with **known follow-ups that aren't blocking and don't have an immediate next step**, write them to `public.agent_tasks` with the `[loose-end]` title prefix. Don't tell Edmund to "remember" or "write it down" — that's Edmund doing your job.
+Edmund **does not** run SQL, click into rows, or "knock things out" manually. He tells Claude Code: *"do the loose ends"* (or `/knock-out` once that exists). Everything below is designed for that.
 
-## The rule
+If a loose end can't be acted on by a future Claude session reading just the row, it's not a loose end — it's a note in the wind.
 
-At the end of any session where you say something like "X is a loose end" / "worth fixing later" / "outstanding follow-up" / "by the way I noticed Y but didn't fix it":
+## Two categories — pick one
 
-**Insert a row into `public.agent_tasks`** with:
-- `id`: `gen_random_uuid()::text`
-- `from_agent`: `'claude-code'` (or whichever agent surfaced it)
-- `from_name`: `'Claude Code'`
-- `from_emoji`: `'🤖'`
-- `to_agent`: `'edmund'`
-- `title`: `'[loose-end] <one-line summary>'` — keep the prefix consistent so they're filterable
-- `description`: enough context for a future session (or Edmund) to act without re-discovering. Include file paths, dates, the reason it's a loose end (not blocking? needs design call? out of scope today?).
-- `status`: `'pending'`
-- `priority`: `4` (low) for routine loose ends; bump to `2` or `3` if there's a deadline or risk
-- `project_slug`: the workstream this belongs to (`factory`, `em-brand`, etc.)
+| Category | When | Format | What happens |
+|---|---|---|---|
+| **`auto`** — fixable without Edmund's input | Trivial path edit, doc fix, dependency bump, dead-link, missing migration file, etc. Risk is bounded. | description has explicit Action + Success bullets. | Claude runs it on next "do the loose ends" pass and marks complete. |
+| **`needs-edmund`** — requires a decision | Architecture call, naming taste, "do we keep X or delete it", anything destructive. | description states the question + options A/B/C. | Claude surfaces it next time, Edmund picks an option, Claude executes. |
 
-Sample SQL:
+If a loose end takes <5 minutes AND is `auto`, **just do it now** instead of filing. Filing it makes more work, not less.
+
+## Required description format
+
+Every `[loose-end]` row's `description` MUST include these sections so a cold Claude session can act:
+
+```
+Category: auto | needs-edmund
+Risk: low | medium | high
+Files involved: <paths>
+
+Action:
+- Step 1 …
+- Step 2 …
+
+Success:
+- <How to verify it's done>
+
+Context:
+- <Why this came up, what was tried>
+```
+
+Keep each section to bullets, not paragraphs. If the Action section can't be written concretely, the loose end isn't ready — it's a design call (own session).
+
+## Title format
+
+`[loose-end] <imperative phrase>` — e.g. `[loose-end] Fix stale paths in factory/CLAUDE.md` not `[loose-end] CLAUDE.md has stale paths`. Imperative tells the next Claude what to *do*.
+
+## Sample SQL
 
 ```sql
 INSERT INTO public.agent_tasks (id, from_agent, from_name, from_emoji, to_agent, title, description, status, priority, project_slug)
@@ -31,41 +52,61 @@ VALUES (
   gen_random_uuid()::text,
   'claude-code', 'Claude Code', '🤖',
   'edmund',
-  '[loose-end] Stale references in factory/CLAUDE.md',
-  'Lines 79/83/87 still point at retired architecture-rebuild folder paths. Update to archive/ paths or current canonical homes. Discovered 2026-05-03.',
+  '[loose-end] Fix stale paths in factory/CLAUDE.md',
+  $body$Category: auto
+Risk: low
+Files involved: /Users/edmundmitchell/factory/CLAUDE.md (lines 79, 83, 87)
+
+Action:
+- Replace `architecture-rebuild-2026-04-17/06-handoffs/autonomy-charter.md` with `ops/autonomy-charter.md` on line 79.
+- Update line 83 research-run path to `ops/research/YYYY-MM-DD-<topic>.md`.
+- Prefix lines 87+91 decisions-log + open-questions paths with `archive/`.
+
+Success:
+- `grep -n "architecture-rebuild-2026-04-17" CLAUDE.md` returns only the table row that intentionally references the archive folder (no other matches).
+
+Context:
+- Folder retired 2026-05-02; CLAUDE.md never got updated. Discovered during routing-layer build session.
+$body$,
   'pending', 4, 'factory'
 );
 ```
 
+Use Postgres `$body$...$body$` dollar-quoting so multi-line markdown doesn't escape-hell.
+
+## The "knock out" workflow (what Claude does when Edmund says "do the loose ends")
+
+1. Query open auto-category loose ends, lowest priority first:
+   ```sql
+   SELECT id, title, description, project_slug
+   FROM public.agent_tasks
+   WHERE status='pending' AND title LIKE '[loose-end]%'
+   ORDER BY priority ASC, created_at ASC;
+   ```
+2. For each `Category: auto` row: parse Action bullets, execute, run Success check, mark complete:
+   ```sql
+   UPDATE public.agent_tasks
+   SET status='approved', completed_at=now(), result='<short summary of what changed>'
+   WHERE id='<uuid>';
+   ```
+3. For each `Category: needs-edmund` row: surface to Edmund with the options, wait for his pick, then execute and mark complete.
+4. At the end of the pass, summarize: N done, M waiting on Edmund, K skipped (with reason).
+
+If anything fails Success: mark the task `status='pending'` (no-op) and add a note to `result` explaining what went wrong. Don't fake-complete.
+
 ## Why agent_tasks (and not work_log, observations, a Notion task, or a markdown file)
 
 - **work_log** = "what happened." Loose ends are "what didn't happen yet." Different shape.
-- **observations** = low-confidence patterns awaiting human approval (Corva's promotion path). Loose ends are concrete TODOs, not patterns.
-- **Notion tasks** = where Edmund's *human* tasks live. Cross-system writes are friction; he hasn't asked us to push there yet. Stay in Supabase.
-- **Markdown file** (`/loose-ends.md` or similar) = invisible to agents until someone reads it. The point is durability + agent-surfaceable.
+- **observations** = low-confidence patterns awaiting Corva-style promotion. Loose ends are concrete TODOs, not patterns.
+- **Notion tasks** = Edmund's *human* tasks. Cross-system writes are friction; not asked for.
+- **Markdown file** = invisible to agents. Defeats the point.
 
-`agent_tasks` is already on the dashboard at `/tasks`, queryable via `route_query` intent=`workflow_planning` (skill_versions + agent_scheduled_tasks + agent_tasks), and visible to Cordis. It's the right home.
-
-## How they get surfaced
-
-- **Dashboard** `/tasks` page lists them. Edmund sees them when he opens the tab.
-- **Cordis** can query for them with the `[loose-end]` title filter:
-  ```sql
-  SELECT id, title, description, project_slug, created_at
-  FROM public.agent_tasks
-  WHERE status='pending' AND title LIKE '[loose-end]%'
-  ORDER BY priority ASC, created_at DESC;
-  ```
-- **Future enhancement (not today):** add a dedicated `loose_ends_open` view + a `retrieve` intent that queries it.
-
-## How they get closed
-
-When Edmund (or an agent) handles one:
-- `UPDATE agent_tasks SET status='approved', completed_at=now(), result='<what was done>' WHERE id='<uuid>';`
-- Or via the dashboard's `/tasks` UI if it supports completion (it does).
+`agent_tasks` is on the dashboard `/tasks` page, queryable by Cordis, persists across sessions. Right home.
 
 ## Anti-patterns
 
-- **Don't tell Edmund "remember these"** — humans forget; databases don't. Write them.
-- **Don't bury them in a long closeout summary** — the closeout becomes a blob nobody re-reads. One row per loose end, queryable.
-- **Don't gold-plate** — loose ends should take 30 seconds each to write. If you find yourself drafting a 200-word description, either it's a real task (priority ≥ 3 with a clear next step) or a design call (worth its own session, not a loose end).
+- **Don't tell Edmund "remember these."** Humans forget; databases don't.
+- **Don't file 30-second fixes.** Just do them.
+- **Don't write a vague description.** If you can't write concrete Action bullets, it isn't ready — turn it into a real task or a design call, not a loose end.
+- **Don't bury 5 loose ends in one row.** One row = one fix.
+- **Don't gold-plate descriptions.** Bullets, not paragraphs. The reader is a busy Claude.

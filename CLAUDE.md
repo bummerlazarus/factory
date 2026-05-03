@@ -76,16 +76,16 @@ Any new ingest pipeline (article, PDF, transcript) MUST follow this pattern — 
 - If MCP tools fail twice, stop and ask.
 - Never use `browser_subagent` — crashes the system.
 - Firecrawl is the primary web research tool.
-- Autonomous-run rules of engagement live in `architecture-rebuild-2026-04-17/06-handoffs/autonomy-charter.md`.
+- Autonomous-run rules of engagement live in `ops/autonomy-charter.md`.
 
 ## When Edmund dispatches a research run
 
-Save the report to `architecture-rebuild-2026-04-17/04-audit/YYYY-MM-DD-<topic>.md` and summarize back.
+Save the report under `ops/research/YYYY-MM-DD-<topic>.md` (create the dir if missing). The old `architecture-rebuild-2026-04-17/04-audit/` path is retired.
 
 ## When a firm decision gets made
 
-Add an entry to `architecture-rebuild-2026-04-17/03-decisions/decisions-log.md` (dated, with rationale).
+Append to `archive/architecture-rebuild-2026-04-17/03-decisions/decisions-log.md` (dated, with rationale). The decisions log was kept after the rebuild was retired because it's the canonical history; new entries still go on top.
 
 ## When open questions resolve
 
-Move them from `03-decisions/open-questions.md` into the decisions log.
+Move them from `archive/architecture-rebuild-2026-04-17/03-decisions/open-questions.md` into the decisions log.
