@@ -187,7 +187,10 @@ Deno.serve(async (req) => {
   const runId = runRow.id as string;
 
   async function finishRun(patch: Record<string, unknown>) {
-    await supabase.from("curator_runs").update({ ...patch, finished_at: new Date().toISOString() }).eq("id", runId);
+    const { error } = await supabase.from("curator_runs").update({ ...patch, finished_at: new Date().toISOString() }).eq("id", runId);
+    if (error) {
+      console.error(JSON.stringify({ curator_finish_run_failed: error.message, run_id: runId, patch_keys: Object.keys(patch) }));
+    }
   }
 
   try {
@@ -338,8 +341,12 @@ Deno.serve(async (req) => {
         dropReasons.push(`empty_rationale:${p.skill_name}`);
         continue;
       }
+      if (!Array.isArray(p.source_refs) || p.source_refs.length === 0) {
+        dropReasons.push(`no_source_refs:${p.skill_name}`);
+        continue;
+      }
       let badRef = false;
-      for (const ref of p.source_refs ?? []) {
+      for (const ref of p.source_refs) {
         const set = ref.kind === "work_log"
           ? validWorkLog
           : ref.kind === "ingest_run"

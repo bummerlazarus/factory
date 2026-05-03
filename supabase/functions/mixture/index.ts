@@ -84,19 +84,18 @@ Deno.serve(async (req) => {
   }
 
   const callerModels = Array.isArray(body.models) && body.models.length > 0 ? body.models : null;
-  if (callerModels) {
-    for (const id of callerModels) {
-      try { assertAllowed(id); }
-      catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return new Response(JSON.stringify({ error: "model_id_disallowed", id, detail: msg }), {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        });
-      }
+  const models = (callerModels ?? defaultModels).slice(0, MAX_MODELS);
+  // Validate only the models we will actually call (post-slice).
+  for (const id of models) {
+    try { assertAllowed(id); }
+    catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return new Response(JSON.stringify({ error: "model_id_disallowed", id, detail: msg }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
     }
   }
-  const models = (callerModels ?? defaultModels).slice(0, MAX_MODELS);
 
   if (typeof body.synth_model === "string" && body.synth_model.trim().length > 0) {
     try { assertAllowed(body.synth_model); }
