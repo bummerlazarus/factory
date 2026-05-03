@@ -27,6 +27,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { pickModel, pickFallback } from "../_shared/models.ts";
+import { logModelCall } from "../_shared/cost-log.ts";
 
 type Body = { task?: string; params?: Record<string, unknown> };
 
@@ -58,6 +59,7 @@ async function llmSummarize(systemPrompt: string, userPrompt: string): Promise<s
   }
   const model = auth.isOpenRouter ? pickModel("summarize") : pickFallback();
   console.log(JSON.stringify({ delegate_model: model }));
+  const t0 = Date.now();
   const res = await fetch(auth.base, {
     method: "POST",
     headers,
@@ -70,6 +72,16 @@ async function llmSummarize(systemPrompt: string, userPrompt: string): Promise<s
   });
   if (!res.ok) throw new Error(`llm ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const j = await res.json();
+  await logModelCall({
+    source: "edge:delegate",
+    model,
+    provider: auth.isOpenRouter ? "openrouter" : "openai",
+    usage: {
+      inputTokens:  j.usage?.prompt_tokens ?? 0,
+      outputTokens: j.usage?.completion_tokens ?? 0,
+    },
+    latencyMs: Date.now() - t0,
+  });
   return (j.choices?.[0]?.message?.content ?? "").trim();
 }
 

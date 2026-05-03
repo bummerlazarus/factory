@@ -11,6 +11,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { pickModel, pickFallback } from "../_shared/models.ts";
+import { logModelCall } from "../_shared/cost-log.ts";
 
 const MAX_PROPOSALS = 3;
 const LOOKBACK_HOURS = 24;
@@ -81,6 +82,7 @@ async function callLLM(
   userPrompt: string,
   title: string,
 ): Promise<string> {
+  const t0 = Date.now();
   const headers: Record<string, string> = {
     "authorization": `Bearer ${llmAuth.key}`,
     "content-type": "application/json",
@@ -108,6 +110,16 @@ async function callLLM(
     throw new Error(`llm ${res.status}: ${txt.slice(0, 500)}`);
   }
   const j = await res.json();
+  await logModelCall({
+    source: "edge:curator_pass",
+    model,
+    provider: llmAuth.isOpenRouter ? "openrouter" : "openai",
+    usage: {
+      inputTokens:  j.usage?.prompt_tokens ?? 0,
+      outputTokens: j.usage?.completion_tokens ?? 0,
+    },
+    latencyMs: Date.now() - t0,
+  });
   return (j.choices?.[0]?.message?.content ?? "").toString();
 }
 

@@ -17,6 +17,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { pickModel, assertAllowed } from "../_shared/models.ts";
+import { logModelCall } from "../_shared/cost-log.ts";
 
 type Body = { question?: string; system?: string; models?: string[]; synth_model?: string };
 
@@ -51,6 +52,16 @@ async function callOpenRouter(model: string, system: string, user: string, key: 
   });
   if (!res.ok) throw new Error(`${model} ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const j = await res.json();
+  await logModelCall({
+    source: "edge:mixture",
+    model,
+    provider: "openrouter",
+    usage: {
+      inputTokens:  j.usage?.prompt_tokens ?? 0,
+      outputTokens: j.usage?.completion_tokens ?? 0,
+    },
+    latencyMs: Date.now() - t0,
+  });
   return {
     content: (j.choices?.[0]?.message?.content ?? "").trim(),
     ms: Date.now() - t0,
