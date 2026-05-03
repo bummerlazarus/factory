@@ -1,0 +1,127 @@
+graph TB
+    subgraph Input["🔹 CAPTURE & INPUT LAYER"]
+        Claude["Claude Chat<br/>(CEO Desk Session)"]
+        Dashboard["Dashboard /inbox"]
+        Webhook["Webhook URL<br/>(iPhone Shortcuts, Email)"]
+        Voice["Voice Memos<br/>(Whisper)"]
+    end
+
+    subgraph Core["🔷 CORE: Supabase (Single Source of Truth)"]
+        subgraph DB["Database (PostgreSQL)"]
+            AgentStack["Agent Stack Tables<br/>(messages, memory, tasks)"]
+            Content["Content / CMS<br/>(posts, projects, research)"]
+            Operations["Operations<br/>(work_log, sessions, events)"]
+            Refs["Reference Docs<br/>(goals, values, KPIs, frameworks)"]
+            Memory["Memory Tables<br/>(facts, observations, skill_versions)"]
+        end
+
+        subgraph Edge["Edge Functions"]
+            Capture["capture()<br/>Edge Function"]
+            Sync["Sync / Ingest<br/>Functions"]
+        end
+
+        Storage["Supabase Storage<br/>(blobs: PDFs, audio, images)"]
+        Realtime["Supabase Realtime<br/>(live pub/sub)"]
+
+        Vector["Vector Layer<br/>(Pinecone or pgvector)"]
+    end
+
+    subgraph Agents["🔸 AGENT RUNTIME"]
+        Claude_Runtime["Claude Runtime<br/>(web, desktop, Code)"]
+
+        subgraph Skills["Skills Library"]
+            Skill1["Capture Skill"]
+            Skill2["Session Retro<br/>→ Promotion"]
+            Skill3["Triage Inbox"]
+            SkillN["... SOPs as Skills<br/>(voice, content, etc)"]
+        end
+
+        subgraph Memory["Memory Snapshot<br/>per agent per session"]
+            Facts["Shared Facts<br/>+ Per-agent Memory"]
+            RecentConv["Recent Conversations"]
+            RefDocs["Reference Docs"]
+        end
+
+        subgraph MCPs["Native MCPs"]
+            SubMCP["Supabase MCP"]
+            PinecMCP["Pinecone MCP"]
+            NotionMCP["Notion MCP"]
+            FirecrawlMCP["Firecrawl MCP"]
+        end
+    end
+
+    subgraph Surfaces["🟡 OUTPUT SURFACES"]
+        DashboardApp["Dashboard<br/>(Next.js/React)<br/>Sessions | Workspace | Inbox"]
+        Notion["Notion<br/>(Work DB, Creator Engine,<br/>CEO Desk Sessions, SOPs)"]
+        ScheduledTasks["Scheduled Tasks<br/>(Daily Briefing, Hygiene)"]
+    end
+
+    subgraph Architecture["📐 ARCHITECTURE PRINCIPLES"]
+        P1["Pillar 1: Rich Data Capture<br/>(sessions, history, logs)"]
+        P2["Pillar 2: One Source of Truth<br/>(goals, values, reference)"]
+        P3["Pillar 3: SOPs as Skills<br/>(versioned, living documents)"]
+        P4["Pillar 4: Self-Improving Loops<br/>(promote patterns, ingest knowledge)"]
+        P5["Pillar 5: Proactive Surfacing<br/>(daily briefing, nudges)"]
+    end
+
+    %% Input → Core
+    Claude -->|"text, URLs, prompts"| Capture
+    Dashboard -->|"form POST, uploads"| Capture
+    Webhook -->|"form POST, audio"| Capture
+    Voice -->|"m4a/mp3 → transcript"| Capture
+
+    %% Capture writes to Core
+    Capture -->|"write + embed"| DB
+    Capture -->|"store blobs"| Storage
+    Capture -->|"upsert embeddings"| Vector
+    Capture -->|"broadcast"| Realtime
+
+    %% Agent Runtime gets data
+    Claude_Runtime -->|"build snapshot"| Memory
+    Memory -->|"queries"| DB
+    Memory -->|"reference"| Refs
+    Claude_Runtime -->|"MCP calls"| MCPs
+
+    %% MCPs connect to backends
+    SubMCP -->|"read/write"| DB
+    PinecMCP -->|"search_memory"| Vector
+    NotionMCP -->|"read ops"| Notion
+    FirecrawlMCP -->|"scrape web"| Edge
+
+    %% Agent writes back
+    Claude_Runtime -->|"capture, observations"| Capture
+    Claude_Runtime -->|"run skills"| Skills
+
+    %% Skills
+    Skills -->|"propose updates"| DB
+    Skills -->|"promote to Notion"| Notion
+
+    %% Realtime bridges to surfaces
+    Realtime -->|"live updates"| DashboardApp
+    Realtime -->|"live messages"| Notion
+
+    %% Surfaces read
+    DashboardApp -->|"render sessions,<br/>workspace, inbox"| DB
+    DashboardApp -->|"subscribe"| Realtime
+    ScheduledTasks -->|"read daily"| DB
+    ScheduledTasks -->|"surface to"| DashboardApp
+
+    %% Scheduled tasks
+    ScheduledTasks -->|"daily_briefing,<br/>hygiene_report"| Claude_Runtime
+
+    %% Architecture connects everything
+    P1 -.->|"drives"| DB
+    P2 -.->|"drives"| Refs
+    P3 -.->|"drives"| Skills
+    P4 -.->|"drives"| Skills
+    P5 -.->|"drives"| ScheduledTasks
+
+    style Input fill:#e1f5ff
+    style Core fill:#f3e5f5
+    style Agents fill:#fff3e0
+    style Surfaces fill:#fce4ec
+    style Architecture fill:#e8f5e9
+    style Capture fill:#c8e6c9
+    style Vector fill:#ffccbc
+    style Memory fill:#ffe0b2
+    style Realtime fill:#bbdefb

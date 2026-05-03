@@ -1,0 +1,71 @@
+erDiagram
+    %% AGENT & AI SYSTEM
+    agents ||--o{ agent_activity_log : logs
+    agents ||--o{ agent_conversations : has
+    agents ||--o{ agent_messages : receives
+    agents ||--o{ agent_tasks : creates
+    agent_conversations ||--o{ agent_messages : contains
+    agent_run_logs ||--o{ agent_cost_log : tracks
+    agents ||--o{ agent_scheduled_tasks : schedules
+    agents ||--o{ agent_memory : stores
+    agents ||--o{ agent_core_memory : maintains
+    agent_activity_log ||--o{ agent_wake_queue : triggers
+
+    %% MEMORY & KNOWLEDGE
+    memory ||--o{ memory_dualread_log : logs
+    observations ||--o{ skill_versions : promotes_to
+    agent_scratchpad ||--o{ agent_conversations : links_to
+    agent_retrieval_feedback ||--o{ memory : queries
+
+    %% CONTENT MANAGEMENT
+    posts ||--o{ lead_magnets : references
+    projects ||--o{ workspace_items : contains
+    content_items ||--o{ content_metrics : tracks
+    competitors ||--o{ content_items : produces
+    competitors ||--o{ ai_analyses : analyzes
+    content_topics ||--o{ content_items : tags
+    topics ||--o{ content_topics : defined_by
+
+    %% MEDIA & INGESTION
+    agent_youtube_videos ||--o{ agent_youtube_comments : has
+    beehiiv_post_metrics ||--o{ posts : measures
+    ingest_runs ||--o{ agent_youtube_videos : sources
+    ingest_runs ||--o{ content_items : sources
+    scrape_runs ||--o{ signals : produces
+
+    %% BUSINESS & COMMERCE
+    clients ||--o{ invoices : receives
+    invoices ||--o{ invoice_items : contains
+    lead_magnets ||--o{ lead_magnet_submissions : collects
+    products ||--o{ services : related
+    vault_files ||--o{ projects : stores_for
+
+    %% WORKFLOW & SESSIONS
+    sessions ||--o{ agent_messages : contains
+    factory_sessions ||--o{ factory_events : generates
+    agent_tasks ||--o{ factory_sessions : tracked_in
+    work_log ||--o{ sessions : summarizes
+    workstreams ||--o{ workspace_items : organizes
+
+    %% MINISTRY/PERSONAL RHYTHM
+    profiles ||--o{ rhythm_plans : has
+    rhythm_plans ||--o{ rhythm_activities : contains
+    suggested_activities ||--o{ rhythm_activities : suggests
+    assessment_results ||--o{ profiles : measures
+
+    %% SIGNAL & MONITORING
+    signals ||--o{ signal_source_health : monitored_by
+    slack_messages ||--o{ agent_activity_log : sources
+
+    %% REFERENCE & DOCS
+    reference_docs ||--o{ reference_docs : references
+    vault_files ||--o{ reference_docs : supports
+
+    %% COMMERCE & FORMS
+    contact_submissions ||--o{ waitlist : converts_to
+    scorecard_responses ||--o{ clients : qualifies
+
+    %% PODCAST/CONTENT PRODUCTION
+    dc_episodes ||--o{ dc_ideas : contains
+    dc_episodes ||--o{ dc_youtube_assets : produces
+    agent_youtube_videos ||--o{ dc_youtube_assets : sources

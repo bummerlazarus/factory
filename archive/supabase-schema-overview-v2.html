@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Database Schema Explorer</title>
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #FF4100;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #FF4100;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+            text-transform: uppercase;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: #f0f0f0;
+            color: #333;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .tab-btn.active {
+            background: #FF4100;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .search-box {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: inherit;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #FF4100;
+            box-shadow: 0 0 0 3px rgba(255,65,0,0.1);
+        }
+
+        .table-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 15px;
+        }
+
+        .table-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid #FF4100;
+        }
+
+        .table-card.hidden {
+            display: none;
+        }
+
+        .table-name {
+            font-weight: 600;
+            font-family: 'Courier New', monospace;
+            color: #FF4100;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .table-rows {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+        }
+
+        .table-columns {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .column {
+            background: #f9f9f9;
+            padding: 6px 8px;
+            border-radius: 3px;
+            margin: 4px 0;
+            font-family: 'Courier New', monospace;
+        }
+
+        .column-type {
+            color: #FF4100;
+            font-weight: 500;
+        }
+
+        .domain-section {
+            margin-bottom: 30px;
+        }
+
+        .domain-header {
+            background: white;
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            border-left: 4px solid #FF4100;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .domain-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #FF4100;
+        }
+
+        .domain-desc {
+            font-size: 13px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .table-count {
+            display: inline-block;
+            background: #FF4100;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .mini-table-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+
+        .mini-card {
+            background: #f9f9f9;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .mini-name {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            color: #333;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        .no-results {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            text-align: center;
+            color: #999;
+        }
+
+        @media (max-width: 768px) {
+            .table-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Supabase Database Schema Explorer</h1>
+            <p>Project: <strong>obizmgugsqirmnjpirnh</strong></p>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-number">70+</div>
+                    <div class="stat-label">Tables</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">11</div>
+                    <div class="stat-label">Domains</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">pgvector</div>
+                    <div class="stat-label">Enabled</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('domains')">📂 By Domain</button>
+            <button class="tab-btn" onclick="showTab('search')">🔍 Search Tables</button>
+        </div>
+
+        <!-- BY DOMAIN VIEW -->
+        <div id="domains" class="tab-content active">
+            <div id="domain-container"></div>
+        </div>
+
+        <!-- SEARCH VIEW -->
+        <div id="search" class="tab-content">
+            <div class="search-box">
+                <input type="text" id="searchInput" placeholder="Search tables by name or keyword..." onkeyup="filterTables()">
+            </div>
+            <div class="table-grid" id="tableGrid"></div>
+            <div id="noResults" class="no-results" style="display: none;">
+                No tables found matching your search.
+            </div>
+        </div>
+
+        <footer>
+            <p>Supabase Database Schema Overview • 70+ tables across 11 domains<br>Last updated: 2026-04-26</p>
+        </footer>
+    </div>
+
+    <script>
+        const domainData = {
+            "🤖 Agent & AI System": {
+                desc: "Multi-agent orchestration, conversation history, task routing, cost tracking",
+                tables: [
+                    { name: "agents", desc: "Agent definitions and configurations" },
+                    { name: "agent_activity_log", desc: "Activity logs for agent actions" },
+                    { name: "agent_conversations", desc: "Agent conversation sessions" },
+                    { name: "agent_messages", desc: "Individual messages in conversations" },
+                    { name: "agent_tasks", desc: "Tasks assigned between agents" },
+                    { name: "agent_run_logs", desc: "Logs of agent execution runs" },
+                    { name: "agent_cost_log", desc: "Cost tracking for agent operations" },
+                    { name: "agent_scheduled_tasks", desc: "Scheduled tasks for agents" },
+                    { name: "agent_wake_queue", desc: "Queue for waking up agents" }
+                ]
+            },
+            "💾 Memory & Knowledge": {
+                desc: "pgvector store, pinecone migration tracking, skill versioning, RAG feedback",
+                tables: [
+                    { name: "memory", desc: "Primary vector memory store with pgvector" },
+                    { name: "memory_dualread_log", desc: "Logs comparing pgvector vs pinecone" },
+                    { name: "agent_memory", desc: "Agent-specific memory storage" },
+                    { name: "agent_core_memory", desc: "Core facts and knowledge for agents" },
+                    { name: "agent_data_store", desc: "General key-value data store" },
+                    { name: "observations", desc: "Observations ready for skill promotion" },
+                    { name: "skill_versions", desc: "Versioned skill definitions" },
+                    { name: "agent_retrieval_feedback", desc: "RAG retrieval feedback and evaluation" }
+                ]
+            },
+            "📝 Content Management": {
+                desc: "Articles, projects, research, metrics, topic tagging",
+                tables: [
+                    { name: "posts", desc: "Blog posts and articles" },
+                    { name: "projects", desc: "Project listings and details" },
+                    { name: "research", desc: "Research documentation" },
+                    { name: "content_items", desc: "General content items" },
+                    { name: "content_metrics", desc: "Performance metrics for content" },
+                    { name: "content_topics", desc: "Topic assignments for content" },
+                    { name: "topics", desc: "Topic definitions" }
+                ]
+            },
+            "🎥 Media & Ingestion": {
+                desc: "YouTube ingestion, newsletter metrics, web scraping, content sourcing",
+                tables: [
+                    { name: "agent_youtube_videos", desc: "YouTube video records" },
+                    { name: "agent_youtube_comments", desc: "YouTube video comments" },
+                    { name: "beehiiv_post_metrics", desc: "Newsletter email metrics" },
+                    { name: "ingest_runs", desc: "Content ingestion job logs" },
+                    { name: "scrape_runs", desc: "Web scraping job logs" }
+                ]
+            },
+            "💼 Business & Commerce": {
+                desc: "Billing, products, services, lead capture pipelines",
+                tables: [
+                    { name: "clients", desc: "Client/customer records" },
+                    { name: "invoices", desc: "Invoice records" },
+                    { name: "invoice_items", desc: "Line items in invoices" },
+                    { name: "products", desc: "Product catalog" },
+                    { name: "services", desc: "Services offered" },
+                    { name: "lead_magnets", desc: "Lead magnet offers" },
+                    { name: "lead_magnet_submissions", desc: "Lead magnet sign-ups" }
+                ]
+            },
+            "⚙️ Workflow & Sessions": {
+                desc: "Session tracking, sprint management, event logs, work items",
+                tables: [
+                    { name: "sessions", desc: "Chat/work sessions" },
+                    { name: "factory_sessions", desc: "Factory automation sessions" },
+                    { name: "factory_events", desc: "Events during factory sessions" },
+                    { name: "work_log", desc: "Work log entries" },
+                    { name: "workspace_items", desc: "Items in workspace" },
+                    { name: "workstreams", desc: "Workstreams and initiatives" }
+                ]
+            },
+            "🙏 Ministry & Rhythm": {
+                desc: "Spiritual rhythm planning, ministry area tracking, activity suggestions",
+                tables: [
+                    { name: "profiles", desc: "User profiles" },
+                    { name: "rhythm_plans", desc: "Personal rhythm/routine plans" },
+                    { name: "rhythm_activities", desc: "Activities in rhythm plans" },
+                    { name: "suggested_activities", desc: "Suggested activities" },
+                    { name: "assessment_results", desc: "Assessment results and scores" }
+                ]
+            },
+            "📊 Analytics & Signals": {
+                desc: "Competitive intelligence, signal monitoring, message logging",
+                tables: [
+                    { name: "signals", desc: "Intelligence signals and alerts" },
+                    { name: "signal_source_health", desc: "Health status of signal sources" },
+                    { name: "competitors", desc: "Competitor tracking" },
+                    { name: "ai_analyses", desc: "AI-generated analysis results" },
+                    { name: "slack_messages", desc: "Slack message logs" }
+                ]
+            },
+            "📚 Reference & Docs": {
+                desc: "Knowledge base, file management, doc versioning",
+                tables: [
+                    { name: "reference_docs", desc: "Reference documentation" },
+                    { name: "reference_docs_kinds", desc: "Document type definitions" },
+                    { name: "stale_lab_docs", desc: "Stale documentation tracking" },
+                    { name: "vault_files", desc: "Secure file storage" }
+                ]
+            },
+            "🎙️ Content Production": {
+                desc: "Podcast/video production, episode ideas, YouTube assets",
+                tables: [
+                    { name: "dc_episodes", desc: "Episodes being produced" },
+                    { name: "dc_ideas", desc: "Ideas for episodes" },
+                    { name: "dc_youtube_assets", desc: "YouTube asset metadata" },
+                    { name: "dc_config", desc: "Production configuration" }
+                ]
+            },
+            "📋 Forms & Intake": {
+                desc: "Contact forms, waitlist, surveys, assessments",
+                tables: [
+                    { name: "contact_submissions", desc: "Contact form submissions" },
+                    { name: "waitlist", desc: "Waitlist signups" },
+                    { name: "scorecard_responses", desc: "Scorecard survey responses" }
+                ]
+            }
+        };
+
+        function renderDomains() {
+            const container = document.getElementById('domain-container');
+            container.innerHTML = '';
+
+            Object.entries(domainData).forEach(([domain, data]) => {
+                const section = document.createElement('div');
+                section.className = 'domain-section';
+
+                const header = document.createElement('div');
+                header.className = 'domain-header';
+                header.innerHTML = `
+                    <div class="domain-title">
+                        ${domain}
+                        <span class="table-count">${data.tables.length} tables</span>
+                    </div>
+                    <div class="domain-desc">${data.desc}</div>
+                `;
+                section.appendChild(header);
+
+                const grid = document.createElement('div');
+                grid.className = 'mini-table-grid';
+                data.tables.forEach(table => {
+                    const card = document.createElement('div');
+                    card.className = 'mini-card';
+                    card.innerHTML = `
+                        <div class="mini-name">${table.name}</div>
+                        <div style="font-size: 11px; color: #999; margin-top: 4px;">${table.desc}</div>
+                    `;
+                    grid.appendChild(card);
+                });
+                section.appendChild(grid);
+
+                container.appendChild(section);
+            });
+        }
+
+        function renderSearch() {
+            const grid = document.getElementById('tableGrid');
+            grid.innerHTML = '';
+
+            Object.entries(domainData).forEach(([domain, data]) => {
+                data.tables.forEach(table => {
+                    const card = document.createElement('div');
+                    card.className = 'table-card';
+                    card.setAttribute('data-name', table.name.toLowerCase());
+                    card.setAttribute('data-domain', domain.toLowerCase());
+                    card.innerHTML = `
+                        <div class="table-name">${table.name}</div>
+                        <div style="font-size: 12px; color: #FF4100; margin-bottom: 10px;">${domain}</div>
+                        <div class="table-columns">
+                            <strong>Description:</strong> ${table.desc}
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                });
+            });
+        }
+
+        function filterTables() {
+            const query = document.getElementById('searchInput').value.toLowerCase();
+            const cards = document.querySelectorAll('.table-card');
+            let visibleCount = 0;
+
+            cards.forEach(card => {
+                const name = card.getAttribute('data-name');
+                const domain = card.getAttribute('data-domain');
+
+                if (name.includes(query) || domain.includes(query)) {
+                    card.classList.remove('hidden');
+                    visibleCount++;
+                } else {
+                    card.classList.add('hidden');
+                }
+            });
+
+            document.getElementById('noResults').style.display = visibleCount === 0 ? 'block' : 'none';
+        }
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+
+            if (tabName === 'search') {
+                renderSearch();
+            }
+        }
+
+        // Initial render
+        renderDomains();
+    </script>
+</body>
+</html>

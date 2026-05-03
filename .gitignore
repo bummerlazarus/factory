@@ -13,6 +13,17 @@
 dashboard/
 
 # ============================================================
+# Brand docs site — separate repo (bummerlazarus/documentation-starter-kit-em)
+# Cloned into ./brand-docs/ to work alongside factory.
+# ============================================================
+brand-docs/
+
+# ============================================================
+# DC client sites — each is its own repo, cloned into clients/
+# ============================================================
+clients/
+
+# ============================================================
 # CEO Cowork canonical home is ~/Documents/Claude/Projects/CEO Cowork/
 # Any copy that lands in factory/ is local working state — never commit.
 # ============================================================

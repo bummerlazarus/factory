@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edmund's Architecture Rebuild 2026-04-17</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.10.0/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 16px;
+            opacity: 0.95;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .content {
+            padding: 40px;
+            background: #fafafa;
+        }
+
+        .mermaid-wrapper {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            overflow-x: auto;
+        }
+
+        .legend {
+            margin-top: 30px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .legend h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 10px;
+            background: #f8f8f8;
+            border-radius: 6px;
+        }
+
+        .legend-color {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            margin-right: 12px;
+            border: 2px solid #ddd;
+        }
+
+        .legend-text {
+            color: #555;
+            font-size: 14px;
+        }
+
+        .section-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .info-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #667eea;
+        }
+
+        .info-card h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+
+        .info-card p {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .footer {
+            padding: 30px 40px;
+            background: #f0f0f0;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .mermaid-wrapper {
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏗️ Architecture Rebuild 2026-04-17</h1>
+            <p>Edmund's Personal/Work AI Stack — Claude-native + native MCPs, retiring GravityClaw</p>
+        </div>
+
+        <div class="content">
+            <div class="mermaid-wrapper">
+                <div class="mermaid">
+graph TB
+    subgraph Input["🔹 CAPTURE & INPUT LAYER"]
+        Claude["Claude Chat<br/>(CEO Desk Session)"]
+        Dashboard["Dashboard /inbox"]
+        Webhook["Webhook URL<br/>(iPhone Shortcuts, Email)"]
+        Voice["Voice Memos<br/>(Whisper)"]
+    end
+
+    subgraph Core["🔷 CORE: Supabase (Single Source of Truth)"]
+        subgraph DB["PostgreSQL Database"]
+            AgentStack["Agent Stack<br/>(messages, memory, tasks)"]
+            Content["Content / CMS<br/>(posts, projects)"]
+            Operations["Operations<br/>(work_log, sessions)"]
+            Refs["Reference Docs<br/>(goals, values, KPIs)"]
+            Memory["Memory Tables<br/>(facts, observations)"]
+        end
+
+        subgraph Edge["Edge Functions"]
+            Capture["capture()<br/>Edge Function"]
+            Sync["Sync / Ingest<br/>Functions"]
+        end
+
+        Storage["Supabase Storage<br/>(PDFs, audio, images)"]
+        Vector["Vector Layer<br/>(Pinecone or pgvector)"]
+        Realtime["Supabase Realtime<br/>(live pub/sub)"]
+    end
+
+    subgraph Agents["🔸 AGENT RUNTIME"]
+        Claude_Runtime["Claude Runtime<br/>(web, desktop, Code)"]
+
+        subgraph Skills["Skills Library"]
+            Skill1["Content Strategy"]
+            Skill2["Voice & Tone"]
+            Skill3["Lead Magnets"]
+            Skill4["Session Retro<br/>→ Promotion"]
+        end
+
+        subgraph Memory["Memory Snapshot<br/>per agent per session"]
+            Facts["Shared Facts<br/>+ Per-agent Memory"]
+            RecentConv["Recent Conversations"]
+            RefDocs["Reference Docs"]
+        end
+
+        subgraph MCPs["Native MCPs"]
+            SubMCP["Supabase MCP"]
+            PinecMCP["Pinecone MCP"]
+            NotionMCP["Notion MCP"]
+            FirecrawlMCP["Firecrawl MCP"]
+        end
+    end
+
+    subgraph Surfaces["🟡 OUTPUT SURFACES"]
+        DashboardApp["Dashboard<br/>(Next.js/Vercel)<br/>Sessions | Workspace | Inbox"]
+        Notion["Notion<br/>(Work DB, Creator Engine,<br/>CEO Desk Sessions)"]
+        ScheduledTasks["Scheduled Tasks<br/>(Daily Briefing,<br/>Hygiene Report)"]
+    end
+
+    %% Input → Core
+    Claude -->|text, URLs, prompts| Capture
+    Dashboard -->|form POST, uploads| Capture
+    Webhook -->|form POST, audio| Capture
+    Voice -->|m4a/mp3 → transcript| Capture
+
+    %% Capture writes to Core
+    Capture -->|write + embed| DB
+    Capture -->|store blobs| Storage
+    Capture -->|upsert embeddings| Vector
+    Capture -->|broadcast| Realtime
+
+    %% Agent Runtime gets data
+    Claude_Runtime -->|build snapshot| Memory
+    Memory -->|queries| DB
+    Memory -->|reference| Refs
+    Claude_Runtime -->|MCP calls| MCPs
+
+    %% MCPs connect to backends
+    SubMCP -->|read/write| DB
+    PinecMCP -->|search_memory| Vector
+    NotionMCP -->|read ops| Notion
+    FirecrawlMCP -->|scrape web| Capture
+
+    %% Agent writes back
+    Claude_Runtime -->|capture, observations| Capture
+    Claude_Runtime -->|run skills| Skills
+
+    %% Skills
+    Skills -->|propose updates| DB
+    Skills -->|promote to| Notion
+
+    %% Realtime bridges to surfaces
+    Realtime -->|live updates| DashboardApp
+    Realtime -->|live updates| Notion
+
+    %% Surfaces read
+    DashboardApp -->|render| DB
+    DashboardApp -->|subscribe| Realtime
+    ScheduledTasks -->|read daily| DB
+    ScheduledTasks -->|surface to| DashboardApp
+
+    %% Scheduled tasks
+    ScheduledTasks -->|daily_briefing| Claude_Runtime
+
+    style Input fill:#e1f5ff,stroke:#0277bd,stroke-width:3px
+    style Core fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style Agents fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    style Surfaces fill:#fce4ec,stroke:#c2185b,stroke-width:3px
+    style Capture fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px
+    style Vector fill:#ffccbc,stroke:#d84315,stroke-width:2px
+    style Memory fill:#ffe0b2,stroke:#e65100,stroke-width:2px
+    style Realtime fill:#bbdefb,stroke:#1565c0,stroke-width:2px
+                </div>
+            </div>
+
+            <div class="legend">
+                <h3>🎯 Five Core Pillars</h3>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #c8e6c9;"></div>
+                    <div class="legend-text"><strong>Pillar 1: Rich Data Capture</strong> — Sessions, activity, logs all captured for later analysis</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #f3e5f5;"></div>
+                    <div class="legend-text"><strong>Pillar 2: One Source of Truth</strong> — Goals, values, KPIs, frameworks in Supabase + Notion</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #ffe0b2;"></div>
+                    <div class="legend-text"><strong>Pillar 3: SOPs as Skills</strong> — Versioned, living documents that improve over time</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #ffccbc;"></div>
+                    <div class="legend-text"><strong>Pillar 4: Self-Improving Loops</strong> — Agents propose pattern promotions; knowledge compounds</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background-color: #bbdefb;"></div>
+                    <div class="legend-text"><strong>Pillar 5: Proactive Surfacing</strong> — Daily briefing, nudges, observations without prompting</div>
+                </div>
+            </div>
+
+            <div class="section-info">
+                <div class="info-card">
+                    <h4>🔹 Input Layer</h4>
+                    <p>Four capture pathways funnel into one <code>capture()</code> Edge Function. Accepts text, URLs, files, and voice memos. One inbox, three surfaces.</p>
+                </div>
+
+                <div class="info-card">
+                    <h4>🔷 Core: Supabase</h4>
+                    <p>PostgreSQL for structured data, Storage for blobs, Edge Functions for business logic, Realtime for live updates, vector layer for semantic search (Pinecone or pgvector Q2).</p>
+                </div>
+
+                <div class="info-card">
+                    <h4>🔸 Agent Runtime</h4>
+                    <p>Claude with frozen-snapshot memory pattern. Each agent gets snapshot at session start; mid-session writes are durable but don't mutate snapshot. Prefix caching stays stable.</p>
+                </div>
+
+                <div class="info-card">
+                    <h4>🟡 Output Surfaces</h4>
+                    <p>Dashboard (Vercel), Notion (ops source-of-truth), scheduled tasks (daily briefing). Realtime bridges all surfaces for instant updates.</p>
+                </div>
+
+                <div class="info-card">
+                    <h4>💾 Skills Library</h4>
+                    <p>SOPs become versioned Skills (voice/tone, content strategy, lead magnets). Session retro → promotion workflow lets agents suggest updates. Skills depend on specific MCPs and docs.</p>
+                </div>
+
+                <div class="info-card">
+                    <h4>🔌 Native MCPs</h4>
+                    <p>Supabase, Pinecone, Notion, Firecrawl. No custom runtime. Claude is the only agent. Architecture stays simple and upgradeable.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>🏗️ Architecture Rebuild — Started 2026-04-17 | Living Notebook at <code>~/factory/architecture-rebuild-2026-04-17/</code></p>
+            <p style="margin-top: 10px; font-size: 12px; color: #999;">Status: Five pillars defined. Phases 1–2 in progress. Q2 decisions pending (vector strategy, multi-agent workflows, hosting/privacy model).</p>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: true, securityLevel: "strict", theme: "default" });
+        mermaid.contentLoaded();
+    </script>
+</body>
+</html>

@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Database Overview</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11.10.0/dist/mermaid.min.js" integrity="sha384-PY+AFiXLIHkR5jE4nk0JwPQQmmQlT4mJXFlgeT4jJeuARaBQBK+nSwwxzrPRAtUM" crossorigin="anonymous"></script>
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .stat {
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 6px;
+            border-left: 4px solid #FF4100;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #FF4100;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 4px;
+            text-transform: uppercase;
+        }
+
+        .diagram-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #e0e0e0;
+        }
+
+        .diagram-info {
+            background: #f0f8ff;
+            border: 1px solid #add8e6;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .diagram-info strong {
+            color: #FF4100;
+        }
+
+        .mermaid {
+            overflow: auto;
+            max-height: 1000px;
+        }
+
+        .zoom-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .zoom-btn {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .zoom-btn:hover {
+            background: #f0f0f0;
+            border-color: #FF4100;
+        }
+
+        .domains {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .domain-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-left: 4px solid #FF4100;
+        }
+
+        .domain-title {
+            font-weight: 600;
+            color: #FF4100;
+            margin-bottom: 10px;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+
+        .domain-tables {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #666;
+        }
+
+        .table-name {
+            font-family: 'Courier New', monospace;
+            color: #333;
+            background: #f5f5f5;
+            padding: 4px 8px;
+            border-radius: 3px;
+            display: inline-block;
+            margin: 3px 3px 3px 0;
+            font-size: 12px;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: #f0f0f0;
+            color: #333;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .tab-btn.active {
+            background: #FF4100;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .help-text {
+            background: #fffacd;
+            border: 1px solid #f0e68c;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Supabase Database Overview</h1>
+            <p>Project: <strong>obizmgugsqirmnjpirnh</strong></p>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-number">70+</div>
+                    <div class="stat-label">Tables</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">11</div>
+                    <div class="stat-label">Domains</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-number">pgvector</div>
+                    <div class="stat-label">Enabled</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('diagram')">📈 ER Diagram</button>
+            <button class="tab-btn" onclick="showTab('domains')">🏷️ Domain Summary</button>
+        </div>
+
+        <div id="diagram" class="tab-content active">
+            <div class="help-text">
+                💡 <strong>Navigation tips:</strong> Scroll to zoom in/out • Click and drag to pan • Double-click to reset view
+            </div>
+            <div class="diagram-container">
+                <div class="zoom-controls">
+                    <button class="zoom-btn" onclick="document.querySelector('svg').style.transform = 'scale(0.8)'; this.style.transform = 'scale(0.8)'">🔍−</button>
+                    <button class="zoom-btn" onclick="document.querySelector('svg').style.transform = 'scale(1)'; this.style.transform = 'scale(1)'">🔍 Reset</button>
+                    <button class="zoom-btn" onclick="document.querySelector('svg').style.transform = 'scale(1.3)'">🔍+</button>
+                </div>
+                <div class="mermaid" id="mermaid-diagram">
+erDiagram
+    %% AGENT & AI SYSTEM
+    agents ||--o{ agent_activity_log : logs
+    agents ||--o{ agent_conversations : has
+    agents ||--o{ agent_messages : receives
+    agents ||--o{ agent_tasks : creates
+    agent_conversations ||--o{ agent_messages : contains
+    agent_run_logs ||--o{ agent_cost_log : tracks
+    agents ||--o{ agent_scheduled_tasks : schedules
+    agents ||--o{ agent_memory : stores
+    agents ||--o{ agent_core_memory : maintains
+    agent_activity_log ||--o{ agent_wake_queue : triggers
+
+    %% MEMORY & KNOWLEDGE
+    memory ||--o{ memory_dualread_log : logs
+    observations ||--o{ skill_versions : promotes_to
+    agent_scratchpad ||--o{ agent_conversations : links_to
+    agent_retrieval_feedback ||--o{ memory : queries
+
+    %% CONTENT MANAGEMENT
+    posts ||--o{ lead_magnets : references
+    projects ||--o{ workspace_items : contains
+    content_items ||--o{ content_metrics : tracks
+    competitors ||--o{ content_items : produces
+    competitors ||--o{ ai_analyses : analyzes
+    content_topics ||--o{ content_items : tags
+    topics ||--o{ content_topics : defined_by
+
+    %% MEDIA & INGESTION
+    agent_youtube_videos ||--o{ agent_youtube_comments : has
+    beehiiv_post_metrics ||--o{ posts : measures
+    ingest_runs ||--o{ agent_youtube_videos : sources
+    ingest_runs ||--o{ content_items : sources
+    scrape_runs ||--o{ signals : produces
+
+    %% BUSINESS & COMMERCE
+    clients ||--o{ invoices : receives
+    invoices ||--o{ invoice_items : contains
+    lead_magnets ||--o{ lead_magnet_submissions : collects
+    products ||--o{ services : related
+    vault_files ||--o{ projects : stores_for
+
+    %% WORKFLOW & SESSIONS
+    sessions ||--o{ agent_messages : contains
+    factory_sessions ||--o{ factory_events : generates
+    agent_tasks ||--o{ factory_sessions : tracked_in
+    work_log ||--o{ sessions : summarizes
+    workstreams ||--o{ workspace_items : organizes
+
+    %% MINISTRY/PERSONAL RHYTHM
+    profiles ||--o{ rhythm_plans : has
+    rhythm_plans ||--o{ rhythm_activities : contains
+    suggested_activities ||--o{ rhythm_activities : suggests
+    assessment_results ||--o{ profiles : measures
+
+    %% SIGNAL & MONITORING
+    signals ||--o{ signal_source_health : monitored_by
+    slack_messages ||--o{ agent_activity_log : sources
+
+    %% REFERENCE & DOCS
+    reference_docs ||--o{ reference_docs : references
+    vault_files ||--o{ reference_docs : supports
+
+    %% COMMERCE & FORMS
+    contact_submissions ||--o{ waitlist : converts_to
+    scorecard_responses ||--o{ clients : qualifies
+
+    %% PODCAST/CONTENT PRODUCTION
+    dc_episodes ||--o{ dc_ideas : contains
+    dc_episodes ||--o{ dc_youtube_assets : produces
+    agent_youtube_videos ||--o{ dc_youtube_assets : sources
+                </div>
+            </div>
+        </div>
+
+        <div id="domains" class="tab-content">
+            <div class="domains">
+                <div class="domain-card">
+                    <div class="domain-title">🤖 Agent & AI System</div>
+                    <div class="domain-tables">
+                        <span class="table-name">agents</span>
+                        <span class="table-name">agent_activity_log</span>
+                        <span class="table-name">agent_conversations</span>
+                        <span class="table-name">agent_messages</span>
+                        <span class="table-name">agent_tasks</span>
+                        <span class="table-name">agent_run_logs</span>
+                        <span class="table-name">agent_cost_log</span>
+                        <span class="table-name">agent_scheduled_tasks</span>
+                        <span class="table-name">agent_wake_queue</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Multi-agent orchestration, conversation history, task routing, cost tracking</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">💾 Memory & Knowledge</div>
+                    <div class="domain-tables">
+                        <span class="table-name">memory</span>
+                        <span class="table-name">memory_dualread_log</span>
+                        <span class="table-name">agent_memory</span>
+                        <span class="table-name">agent_core_memory</span>
+                        <span class="table-name">agent_data_store</span>
+                        <span class="table-name">observations</span>
+                        <span class="table-name">skill_versions</span>
+                        <span class="table-name">agent_retrieval_feedback</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">pgvector store, pinecone migration tracking, skill versioning, RAG feedback</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">📝 Content Management</div>
+                    <div class="domain-tables">
+                        <span class="table-name">posts</span>
+                        <span class="table-name">projects</span>
+                        <span class="table-name">research</span>
+                        <span class="table-name">content_items</span>
+                        <span class="table-name">content_metrics</span>
+                        <span class="table-name">content_topics</span>
+                        <span class="table-name">topics</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Articles, projects, research, metrics, topic tagging</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">🎥 Media & Ingestion</div>
+                    <div class="domain-tables">
+                        <span class="table-name">agent_youtube_videos</span>
+                        <span class="table-name">agent_youtube_comments</span>
+                        <span class="table-name">beehiiv_post_metrics</span>
+                        <span class="table-name">ingest_runs</span>
+                        <span class="table-name">scrape_runs</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">YouTube ingestion, newsletter metrics, web scraping, content sourcing</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">💼 Business & Commerce</div>
+                    <div class="domain-tables">
+                        <span class="table-name">clients</span>
+                        <span class="table-name">invoices</span>
+                        <span class="table-name">invoice_items</span>
+                        <span class="table-name">products</span>
+                        <span class="table-name">services</span>
+                        <span class="table-name">lead_magnets</span>
+                        <span class="table-name">lead_magnet_submissions</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Billing, products, services, lead capture pipelines</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">⚙️ Workflow & Sessions</div>
+                    <div class="domain-tables">
+                        <span class="table-name">sessions</span>
+                        <span class="table-name">factory_sessions</span>
+                        <span class="table-name">factory_events</span>
+                        <span class="table-name">work_log</span>
+                        <span class="table-name">workspace_items</span>
+                        <span class="table-name">workstreams</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Session tracking, sprint management, event logs, work items</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">🙏 Ministry/Rhythm</div>
+                    <div class="domain-tables">
+                        <span class="table-name">profiles</span>
+                        <span class="table-name">rhythm_plans</span>
+                        <span class="table-name">rhythm_activities</span>
+                        <span class="table-name">suggested_activities</span>
+                        <span class="table-name">assessment_results</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Spiritual rhythm planning, ministry areas, activity suggestions</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">📊 Analytics & Signals</div>
+                    <div class="domain-tables">
+                        <span class="table-name">signals</span>
+                        <span class="table-name">signal_source_health</span>
+                        <span class="table-name">competitors</span>
+                        <span class="table-name">ai_analyses</span>
+                        <span class="table-name">slack_messages</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Competitive intelligence, signal monitoring, message logging</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">📚 Reference & Docs</div>
+                    <div class="domain-tables">
+                        <span class="table-name">reference_docs</span>
+                        <span class="table-name">reference_docs_kinds</span>
+                        <span class="table-name">stale_lab_docs</span>
+                        <span class="table-name">vault_files</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Knowledge base, file management, doc versioning</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">🎙️ Content Production</div>
+                    <div class="domain-tables">
+                        <span class="table-name">dc_episodes</span>
+                        <span class="table-name">dc_ideas</span>
+                        <span class="table-name">dc_youtube_assets</span>
+                        <span class="table-name">dc_config</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Podcast/video production, episode ideas, YouTube assets</p>
+                    </div>
+                </div>
+
+                <div class="domain-card">
+                    <div class="domain-title">📋 Forms & Intake</div>
+                    <div class="domain-tables">
+                        <span class="table-name">contact_submissions</span>
+                        <span class="table-name">waitlist</span>
+                        <span class="table-name">scorecard_responses</span>
+                        <span class="table-name">assessment_results</span>
+                        <p style="margin-top: 15px; font-size: 12px; color: #999;">Contact forms, waitlist, surveys, assessments</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Generated for project obizmgugsqirmnjpirnh • 70+ tables • 11 domains<br>Saved to: ~/factory/supabase-schema-overview.html</p>
+        </footer>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            securityLevel: "strict",
+            er: {
+                fontSize: 14,
+                primaryKeyBackground: "#FF4100",
+                tertiaryTextColor: "#666"
+            }
+        });
+
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Add mouse wheel zoom support
+        const mermaidDiagram = document.getElementById('mermaid-diagram');
+        if (mermaidDiagram) {
+            mermaidDiagram.addEventListener('wheel', function(e) {
+                if (e.ctrlKey) {
+                    e.preventDefault();
+                    const svg = this.querySelector('svg');
+                    if (svg) {
+                        const scale = svg.style.transform ? parseFloat(svg.style.transform.match(/\d+\.?\d*/)) : 1;
+                        const newScale = scale + (e.deltaY > 0 ? -0.1 : 0.1);
+                        svg.style.transform = `scale(${Math.max(0.5, Math.min(3, newScale))})`;
+                        svg.style.transformOrigin = 'top left';
+                    }
+                }
+            }, { passive: false });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Database Architecture</title>
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            color: #1a1a1a;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            flex-wrap: wrap;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: #f0f0f0;
+            color: #333;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            background: #e0e0e0;
+        }
+
+        .tab-btn.active {
+            background: #FF4100;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .diagram-section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+
+        .diagram-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #FF4100;
+            margin-bottom: 20px;
+        }
+
+        .table-flow {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+
+        .flow-row {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .table-box {
+            background: linear-gradient(135deg, #FF4100 0%, #FF6633 100%);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            min-width: 150px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            word-wrap: break-word;
+        }
+
+        .table-box.secondary {
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+        }
+
+        .table-box.tertiary {
+            background: linear-gradient(135deg, #10B981 0%, #14B8A6 100%);
+        }
+
+        .arrow {
+            font-size: 20px;
+            color: #FF4100;
+            flex-shrink: 0;
+        }
+
+        .flow-group {
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            background: #f9f9f9;
+        }
+
+        .group-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #FF4100;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        .help-text {
+            background: #fffacd;
+            border: 1px solid #f0e68c;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🏗️ Supabase Architecture Diagrams</h1>
+            <p>Project: <strong>obizmgugsqirmnjpirnh</strong> • 70+ tables • 11 domains</p>
+        </header>
+
+        <div class="help-text">
+            💡 <strong>Navigation:</strong> Click tabs to switch between different system architectures
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="showTab('overview')">🏗️ System Overview</button>
+            <button class="tab-btn" onclick="showTab('agents')">🤖 Agent System</button>
+            <button class="tab-btn" onclick="showTab('content')">📝 Content & Media</button>
+            <button class="tab-btn" onclick="showTab('business')">💼 Business</button>
+            <button class="tab-btn" onclick="showTab('workflow')">⚙️ Workflow</button>
+        </div>
+
+        <!-- SYSTEM OVERVIEW -->
+        <div id="overview" class="tab-content active">
+            <div class="diagram-section">
+                <div class="diagram-title">📊 Complete System Architecture</div>
+                <div class="table-flow">
+                    <div class="flow-row">
+                        <div class="table-box">Users & Profiles</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="table-box">Agent Core</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box secondary">Agent Execution</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box tertiary">Knowledge Store (pgvector)</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="table-box">Content Pipeline</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box secondary">Metrics</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box tertiary">Intelligence Signals</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="table-box">YouTube Ingestion</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box secondary">Newsletter Metrics</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box tertiary">Analyzed Signals</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="table-box">Business/Clients</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box secondary">Lead Generation</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="table-box">Sessions/Work Log</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box secondary">Workstreams</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box tertiary">Intelligence Feedback</div>
+                    </div>
+
+                    <div class="flow-row">
+                        <div class="table-box">Spiritual Rhythm</div>
+                        <div class="arrow">→</div>
+                        <div class="table-box secondary">Activities & Plans</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AGENT SYSTEM -->
+        <div id="agents" class="tab-content">
+            <div class="diagram-section">
+                <div class="diagram-title">🤖 Agent Core & Execution</div>
+                <div class="flow-group">
+                    <div class="group-title">Agent Infrastructure</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box">agents</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box">agent_conversations</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box">agent_messages</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box">agent_activity_log</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box">agent_wake_queue</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box">agent_scheduled_tasks</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box">Cron Execution</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Execution & Monitoring</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box secondary">agent_run_logs</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">agent_cost_log</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box secondary">agent_tasks</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">Task Results</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Memory Systems</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box tertiary">agent_memory</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">agent_core_memory</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">agent_data_store</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Knowledge & Learning</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box tertiary">memory (pgvector)</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">observations</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">skill_versions</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box tertiary">memory_dualread_log</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">Migration Tracking</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONTENT & MEDIA -->
+        <div id="content" class="tab-content">
+            <div class="diagram-section">
+                <div class="diagram-title">📝 Content Management</div>
+                <div class="flow-group">
+                    <div class="group-title">Content Core</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box">posts</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box">projects</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box">research</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box secondary">content_topics</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">topics</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="diagram-section">
+                <div class="diagram-title">🎥 Media & Ingestion Pipeline</div>
+                <div class="flow-group">
+                    <div class="group-title">Content Sources</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box">ingest_runs</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">agent_youtube_videos</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">agent_youtube_comments</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box">scrape_runs</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">content_items</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box">beehiiv_post_metrics</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">Newsletter Data</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Content Analysis</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box tertiary">content_metrics</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">ai_analyses</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- BUSINESS -->
+        <div id="business" class="tab-content">
+            <div class="diagram-section">
+                <div class="diagram-title">💼 Business & Commerce</div>
+                <div class="flow-group">
+                    <div class="group-title">Client Management</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box">clients</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">invoices</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">invoice_items</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Products & Services</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box tertiary">products</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">services</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Lead Generation</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box">lead_magnets</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">lead_magnet_submissions</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Forms & Intake</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box tertiary">contact_submissions</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">waitlist</div>
+                        </div>
+                        <div class="flow-row">
+                            <div class="table-box tertiary">scorecard_responses</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- WORKFLOW -->
+        <div id="workflow" class="tab-content">
+            <div class="diagram-section">
+                <div class="diagram-title">⚙️ Workflow & Sessions</div>
+                <div class="flow-group">
+                    <div class="group-title">Session Management</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box">sessions</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">factory_sessions</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">factory_events</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Work Tracking</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box tertiary">work_log</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">workstreams</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">workspace_items</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Intelligence & Signals</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box">signals</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box secondary">signal_source_health</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flow-group">
+                    <div class="group-title">Documentation</div>
+                    <div class="table-flow">
+                        <div class="flow-row">
+                            <div class="table-box tertiary">reference_docs</div>
+                            <div class="arrow">→</div>
+                            <div class="table-box tertiary">vault_files</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            Supabase Database Architecture • 70+ tables across 11 domains<br>Project: obizmgugsqirmnjpirnh • Created 2026-04-26
+        </footer>
+    </div>
+
+    <script>
+        function showTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-btn').forEach(el => {
+                el.classList.remove('active');
+            });
+
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>
