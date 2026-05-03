@@ -2,7 +2,26 @@
 
 **Date:** 2026-05-03
 **Author:** Claude (with Edmund)
-**Status:** proposed (follow-up to ops/plans/2026-05-03-cost-routing.md)
+**Status:** SUPERSEDED — see "Why superseded" below.
+
+## Why superseded (added 2026-05-03)
+
+Codex review of this plan flagged that it would not actually close the bypass — it improved Sonnet's review visibility but kept the same trust model that already failed. To close it deterministically would require a much larger refactor (citation-first evidence map, fail-closed Stage C gating, prompt-injection hardening, semantic support semantics). After stepping back, the cost/benefit didn't work out:
+
+- **Worst-case impact of the bypass:** ~3 noisy proposals per day landing in `/inbox/promotions` for Edmund to reject. Bounded — proposals never become real skills without Edmund's eyeballs.
+- **Cost of a real fix:** 1-2 hours of code, ongoing prompt-engineering surface area, false-negative risk where good proposals get dropped.
+
+Decision: don't fix at the curator layer. Strengthen the human review layer instead, and add a time-delayed safety net so a missed catch isn't terminal:
+
+1. **Cheap factory trims** (shipped 2026-05-03 in the same commit cycle): wrap the `valid_*_ids` block in an explicit `<untrusted-data>` block to address Codex's prompt-injection concern; require ≥1 `kind='work_log'` source_ref in Stage C (ingest/session refs alone can't carry a rationale).
+2. **Promotion-time evidence modal** — see `ops/plans/2026-05-03-promotion-evidence-modal.md`. Renders cited evidence inline at `/inbox/promotions` and adds a confirm step before approve.
+3. **Weekly approvals digest + one-click revoke** — see `ops/plans/2026-05-03-weekly-approvals-digest.md`. Catches mistakes that slipped past the moment, before they compound.
+
+The original plan (below) is preserved as historical context.
+
+---
+
+**Original status (now obsolete):** proposed (follow-up to ops/plans/2026-05-03-cost-routing.md)
 
 ## Problem
 
