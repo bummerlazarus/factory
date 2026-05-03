@@ -15,6 +15,20 @@ Format:
 
 ---
 
+## 2026-05-03 — Cost routing via OpenRouter (Haiku for cheap tier)
+
+**Decision:** Route low-stakes Edge Function LLM calls through `_shared/models.ts` with three locked tiers — cheap=`anthropic/claude-haiku-4-5`, mid=`anthropic/claude-sonnet-4-6`, strong=`anthropic/claude-opus-4-7` — via OpenRouter. `curator_pass` becomes Haiku-drafts → Sonnet-reviews. `mixture` voters become [Haiku, Sonnet, Haiku] with Sonnet synth. `delegate` cheap. Dashboard `_shared/llm.ts` cheap tier flipped to Haiku (one line). OpenAI fallback (`gpt-4o-mini`) preserved.
+
+**Context:** Audit on 2026-05-03 found three Edge Functions and dashboard's tier map were the easy-win surface. Spend was running ~$150–300/mo higher than necessary because every call hit Sonnet by default.
+
+**Reasoning:** Two-stage curator_pass keeps the quality bar (Sonnet still reviews against an explicit ID allow-list, drops fake citations) while the bulk-read pass drops to Haiku. Mixture's odd voter loses no real quality vs. all-Sonnet because the synthesizer is still Sonnet. Allowlist guard regex (`/^(anthropic|openai)\/.+$|^google\/gemini-.+$/`) prevents env-var typos or compromise from silently routing to DeepSeek/Mistral. Caller-supplied model ids in `mixture` go through the same guard. Defaults baked into code, not Edge Function secrets — avoids the foot-gun where stale secrets win over a future code change.
+
+**Consequences:** Estimated $150–300/mo saved. NOT routed: dashboard chat (`lib/anthropic.ts`), agent-runner main loop, audio transcription, signal classification — those need Sonnet. `MODEL_CHEAP/MID/STRONG` env vars exist as escape hatches but are unset by default. Forward-compat: changing the locked list requires Edmund's approval.
+
+**Status:** active
+
+---
+
 ## 2026-05-03 — Routing layer shipped: `table_registry` + `intent_router`
 
 **Decision:** Land the routing layer described in `supabase/proposals/table-registry.md` (2026-04-26). Two new tables in `public`:

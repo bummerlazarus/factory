@@ -16,16 +16,10 @@
 // Deployed via Supabase MCP on 2026-05-03; this file is the canonical record.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { pickModel, assertAllowed } from "../_shared/models.ts";
 
-type Body = { question?: string; system?: string; models?: string[] };
+type Body = { question?: string; system?: string; models?: string[]; synth_model?: string };
 
-const DEFAULT_MODELS = [
-  "anthropic/claude-sonnet-4-6",
-  "openai/gpt-4o",
-  "google/gemini-2.5-pro",
-];
-
-const SYNTH_MODEL = "anthropic/claude-sonnet-4-6";
 const MAX_MODELS = 5;
 
 function badRequest(msg: string, status = 400) {
@@ -79,10 +73,46 @@ Deno.serve(async (req) => {
   const question = (body.question ?? "").trim();
   if (!question) return badRequest("question required");
   const system = body.system?.trim() || "You are a thoughtful expert. Answer the user's question directly and concretely. If you're uncertain, say so.";
-  const models = (Array.isArray(body.models) && body.models.length > 0 ? body.models : DEFAULT_MODELS).slice(0, MAX_MODELS);
+
+  let defaultModels: string[];
+  let synthModel: string;
+  try {
+    defaultModels = [pickModel("vote"), pickModel("vote_mid"), pickModel("vote")];
+    synthModel = pickModel("synthesize");
+  } catch (e) {
+    return badRequest((e as Error).message, 500);
+  }
+
+  const callerModels = Array.isArray(body.models) && body.models.length > 0 ? body.models : null;
+  if (callerModels) {
+    for (const id of callerModels) {
+      try { assertAllowed(id); }
+      catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Response(JSON.stringify({ error: "model_id_disallowed", id, detail: msg }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      }
+    }
+  }
+  const models = (callerModels ?? defaultModels).slice(0, MAX_MODELS);
+
+  if (typeof body.synth_model === "string" && body.synth_model.trim().length > 0) {
+    try { assertAllowed(body.synth_model); }
+    catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return new Response(JSON.stringify({ error: "model_id_disallowed", id: body.synth_model, detail: msg }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    synthModel = body.synth_model;
+  }
 
   const t0 = Date.now();
   const votes = await Promise.all(models.map(async (m) => {
+    console.log(JSON.stringify({ mixture_voter: m }));
     try {
       const r = await callOpenRouter(m, system, question, openrouter);
       return { model: m, ok: true as const, content: r.content, ms: r.ms, tokens: r.tokens };
@@ -113,7 +143,8 @@ Deno.serve(async (req) => {
   let synthesis = "";
   let synthMs = 0;
   try {
-    const synth = await callOpenRouter(SYNTH_MODEL, synthSystem, synthUser, openrouter);
+    console.log(JSON.stringify({ mixture_synth: synthModel }));
+    const synth = await callOpenRouter(synthModel, synthSystem, synthUser, openrouter);
     synthesis = synth.content;
     synthMs = synth.ms;
   } catch (e) {

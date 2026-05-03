@@ -1,5 +1,17 @@
 # Factory changelog
 
+## 2026-05-03 (latest) — Cost routing via OpenRouter (rev 3 plan)
+
+Cut LLM spend on Edge Functions by routing low-stakes tasks to Haiku and keeping Sonnet for review/synthesis.
+
+- New shared picker: `supabase/functions/_shared/models.ts` — `pickModel(task)` + `assertAllowed(id)` allowlist guard (`anthropic/`, `openai/`, `google/gemini-` only) + env overrides `MODEL_CHEAP/MID/STRONG`.
+- `curator_pass` is now two-stage: Haiku drafts (sees source data) → Sonnet reviews against an explicit ID allow-list (no source data). Adds JSON shape validation + one stricter retry, deterministic schema validation (kebab-case skill_name, non-empty body/rationale, no fake refs), and `notes` records `draft → reviewed → inserted (dropped …) | draft_model=… review_model=…`. Dry-run still calls both LLMs but inserts zero. Model ids also written into `skill_versions.metadata`.
+- `mixture` voters → `[Haiku, Sonnet, Haiku]`; synthesizer Sonnet. Model selection moved inside the request handler (env changes take effect on next request). Caller-supplied `body.models`/`body.synth_model` validated against the allowlist (`model_id_disallowed` 400 on violation). Server-side `console.log({mixture_voter})` per voter + `{mixture_synth}` for synth.
+- `delegate` → `pickModel("summarize")` for OpenRouter, `pickFallback()` (`gpt-4o-mini`) for OpenAI fallback. Logs `{delegate_model}`.
+- Dashboard: single line in `dashboard/supabase/functions/_shared/llm.ts` — `cheap` tier flipped from `openai/gpt-4o-mini` to `anthropic/claude-haiku-4-5`. 5 importers redeployed (processor-run, contradiction-scan, permanent-gate, researcher-run, research-director-synthesis).
+- Approved model list (locked): `anthropic/claude-haiku-4-5` (cheap), `anthropic/claude-sonnet-4-6` (mid), `anthropic/claude-opus-4-7` (strong). OpenRouter accepts both hyphen and dot version separators (verified). OpenAI fallback: `gpt-4o-mini`.
+- Plan: `ops/plans/2026-05-03-cost-routing.md`. Estimated savings $150–300/mo. Out of scope: dashboard chat (`lib/anthropic.ts`), agent-runner main loop, audio transcription, signal classification.
+
 ## 2026-05-03 (later) — Phases 5 + 6 + 7 + polish + Lev path
 
 **B-batch polish:**

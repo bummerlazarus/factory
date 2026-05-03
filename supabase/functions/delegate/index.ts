@@ -26,6 +26,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { pickModel, pickFallback } from "../_shared/models.ts";
 
 type Body = { task?: string; params?: Record<string, unknown> };
 
@@ -55,11 +56,13 @@ async function llmSummarize(systemPrompt: string, userPrompt: string): Promise<s
     headers["HTTP-Referer"] = "https://factory.edmundmitchell.com";
     headers["X-Title"] = "factory-delegate";
   }
+  const model = auth.isOpenRouter ? pickModel("summarize") : pickFallback();
+  console.log(JSON.stringify({ delegate_model: model }));
   const res = await fetch(auth.base, {
     method: "POST",
     headers,
     body: JSON.stringify({
-      model: auth.isOpenRouter ? "anthropic/claude-sonnet-4-6" : "gpt-4o-mini",
+      model,
       temperature: 0.4,
       max_tokens: 800,
       messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
