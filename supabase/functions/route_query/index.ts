@@ -6,7 +6,7 @@
 //
 // v2 (2026-05-03) executes the obvious SQL intents server-side too:
 // recent_activity, project_status, ingestion_status, concept_lookup,
-// workflow_planning. memory_lookup still runs the vector pass.
+// workflow_planning, session_search. memory_lookup still runs the vector pass.
 // Other intents (research_question, content_idea_lookup, content_performance,
 // business_lookup, agent_debugging) return the plan only — caller composes.
 //
@@ -49,6 +49,8 @@ type RouteBody = {
   namespace?: string;
   top_k?: number;
   scope?: { pii_ok?: boolean } | null;
+  agent_filter?: string;
+  since?: string;
 };
 
 type IntentRouterRow = {
@@ -190,6 +192,18 @@ Deno.serve(async (req) => {
       .order("updated_at", { ascending: false })
       .limit(limit);
     if (error) return badRequest(`skill_versions query failed: ${error.message}`, 500);
+    results = data ?? [];
+  } else if (intent === "session_search") {
+    if (!body.query || typeof body.query !== "string" || !body.query.trim()) {
+      return badRequest("session_search requires a non-empty 'query' string");
+    }
+    const { data, error } = await supabase.rpc("search_chat_history", {
+      q: body.query,
+      top_k: limit,
+      agent_filter: typeof body.agent_filter === "string" ? body.agent_filter : null,
+      since: typeof body.since === "string" ? body.since : null,
+    });
+    if (error) return badRequest(`search_chat_history failed: ${error.message}`, 500);
     results = data ?? [];
   } else if (intent === "memory_lookup" && body.query) {
     const top_k = limit;
