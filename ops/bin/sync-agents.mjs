@@ -61,6 +61,48 @@ if (!existsSync(AGENTS_DIR)) {
   process.exit(1);
 }
 
+// ── shared partial: dashboard surface map ───────────────────────────────
+// Loaded once and injected into any agent CLAUDE.md that contains both
+// `<!-- DASHBOARD-SURFACES:START -->` and `<!-- DASHBOARD-SURFACES:END -->`
+// markers. Lets one source of truth update every agent on next sync.
+const SHARED_DIR = join(COWORK_PATH, "agent personalities", "_shared");
+const SURFACES_PATH = join(SHARED_DIR, "dashboard-surfaces.md");
+const SURFACE_START = "<!-- DASHBOARD-SURFACES:START -->";
+const SURFACE_END = "<!-- DASHBOARD-SURFACES:END -->";
+let surfacesBody = null;
+if (existsSync(SURFACES_PATH)) {
+  surfacesBody = readFileSync(SURFACES_PATH, "utf8").trim();
+}
+
+function injectSharedSurfaces(claudeMd) {
+  if (!surfacesBody) return claudeMd;
+  const startIdx = claudeMd.indexOf(SURFACE_START);
+  const endIdx = claudeMd.indexOf(SURFACE_END);
+  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) return claudeMd;
+  const before = claudeMd.slice(0, startIdx + SURFACE_START.length);
+  const after = claudeMd.slice(endIdx);
+  return `${before}\n${surfacesBody}\n${after}`;
+}
+
+// Validate surface map matches dashboard sidebar — warn if drift detected.
+function checkSidebarDrift() {
+  const sidebar = join(FACTORY_ROOT, "dashboard", "components", "layout", "sidebar.tsx");
+  if (!existsSync(sidebar) || !surfacesBody) return;
+  const text = readFileSync(sidebar, "utf8");
+  const navStart = text.indexOf("navItems");
+  if (navStart === -1) return;
+  const navBlock = text.slice(navStart, text.indexOf("];", navStart));
+  const hrefs = [...navBlock.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
+  const missingFromSurfaces = hrefs.filter(
+    (h) => !surfacesBody.includes(`\`${h}\``),
+  );
+  if (missingFromSurfaces.length > 0) {
+    console.log(
+      `⚠ sidebar nav has paths not listed in _shared/dashboard-surfaces.md: ${missingFromSurfaces.join(", ")} — update the shared file then re-run sync.`,
+    );
+  }
+}
+
 // ── identity.md parser ──────────────────────────────────────────────────
 // Identity files use **Field:** value lines, not YAML frontmatter.
 function parseIdentity(text) {
@@ -129,7 +171,7 @@ function readAgentFromDisk(id) {
     emoji: meta.emoji ?? "🤖",
     accent_color: meta.accent_color ?? "#888888",
     identity_md: identityText,
-    claude_md: readFileSync(claudePath, "utf8"),
+    claude_md: injectSharedSurfaces(readFileSync(claudePath, "utf8")),
     soul_md: existsSync(soulPath) ? readFileSync(soulPath, "utf8") : null,
   };
 }
@@ -189,6 +231,10 @@ async function main() {
     });
   }
   console.log(`Syncing ${ids.length} agent(s) from ${AGENTS_DIR} → ${SUPABASE_URL}`);
+  if (surfacesBody) {
+    console.log(`(injecting _shared/dashboard-surfaces.md into agents with markers)`);
+  }
+  checkSidebarDrift();
   const counts = { synced: 0, unchanged: 0, error: 0 };
   for (const id of ids.sort()) {
     const r = await syncOne(id);
