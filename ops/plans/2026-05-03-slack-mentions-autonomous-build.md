@@ -83,7 +83,8 @@ This is the same logic as `resolveAgentId` but with an in-memory 30s LRU so we c
 ```bash
 # Insert a synthetic bad row, drain once, assert it's failed not pending
 psql ... -c "INSERT INTO agent_wake_queue(agent_id,trigger_type,trigger_message) VALUES ('nope-agent','manual','test');"
-curl -X POST https://dashboard-nine-delta-26.vercel.app/api/cron/drain-wake-queue
+curl -X POST http://localhost:3000/api/cron/drain-wake-queue
+# (Earlier drafts of this plan pointed at https://dashboard-nine-delta-26.vercel.app — wrong app. The dashboard is local-only.)
 psql ... -c "SELECT status, attempts, last_error FROM agent_wake_queue WHERE agent_id='nope-agent';"
 # Expect: status=failed, attempts=1
 ```

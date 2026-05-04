@@ -19,7 +19,7 @@ Anything else is wrong. Verify with `list_projects` if unsure.
 
 | Path | What |
 |---|---|
-| `dashboard/` | Sister repo ([bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)) cloned into `./dashboard/` and gitignored here. Deployed to Vercel as project `dashboard` (prod URL `dashboard-nine-delta-26.vercel.app`). |
+| `dashboard/` | Sister repo ([bummerlazarus/local-agents-dashboard](https://github.com/bummerlazarus/local-agents-dashboard)) cloned into `./dashboard/` and gitignored here. **Local-only — runs on `npm run dev` at port 3000. Not deployed to Vercel.** Do not assume any `*.vercel.app` URL points at the agent dashboard. The Vercel project literally named `dashboard` (`dashboard-nine-delta-26.vercel.app`) is a different app entirely (DC podcast). |
 | `ops/bin/` | Ingest scripts. Every script writes to Supabase `public.ingest_runs` (migration 017) so failures are debuggable. |
 | `ops/docs/` | Operational references: `capture-api.md`, `iphone-shortcuts-guide.md`, `specialist-spawn.md`, **`agent-source-of-truth.md`** (READ THIS before editing any agent — disk vs. DB convention), **`loose-ends.md`** (READ THIS before ending a session — write follow-ups to `agent_tasks`, don't ask Edmund to remember them). |
 | `ops/autonomy-charter.md` | Rules of engagement for autonomous runs. |
@@ -81,6 +81,7 @@ Any new ingest pipeline (article, PDF, transcript) MUST follow this pattern — 
 
 ## Working style
 
+- **Claude Code runs commands; Edmund doesn't.** Never end a response with "now run `npm run dev`" / "go run `curl …`" / "you can `git push` when ready." If a command needs to run, run it inside the same turn. "Next steps for you" are *decisions* (approve / reject / pick A or B / read this file), never shell commands. The only exception is something Claude genuinely can't do (e.g. interactive auth on Edmund's physical machine) — in that case, say *why* it has to be him.
 - Markdown-first. Edmund reviews files in the sidebar while we chat.
 - Conversation → decisions/research logged to files → reviewed together.
 - Don't over-engineer. Minimum complexity for the current task.

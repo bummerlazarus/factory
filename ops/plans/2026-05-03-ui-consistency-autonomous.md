@@ -1,7 +1,7 @@
 # Dashboard UI/UX Consistency — Autonomous Build Plan (rev B, post-Codex review)
 
 **Date:** 2026-05-03
-**Repo:** `~/factory/dashboard` (sister repo, deployed to Vercel as `dashboard` — production URL `dashboard-nine-delta-26.vercel.app`)
+**Repo:** `~/factory/dashboard` (sister repo). **Local-only — runs on `npm run dev` at port 3000. Not deployed to Vercel.** (Earlier versions of this doc claimed it deployed to `dashboard-nine-delta-26.vercel.app`; that URL belongs to a different app — DC podcast web — which happens to share the Vercel project name `dashboard`.)
 **Baseline commit:** `24a8dd3` on `origin/main` (6 commits already pushed in this consistency pass)
 **Working branch:** `ui-consistency-2026-05-03` (do **not** push directly to `main` — fast-forward at the end after Edmund eyeballs)
 

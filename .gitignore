@@ -6,6 +6,16 @@
 !.env.example
 !.env.template
 
+# Separate repo cloned for reference — do not vendor
+open-design/
+
+# Runtime lock files
+.claude/scheduled_tasks.lock
+
+# Local working state
+brains/
+archive/icloud-ceo-cowork-quarantine-*/
+
 # ============================================================
 # Dashboard lives in its own repo (bummerlazarus/local-agents-dashboard)
 # Clone it separately into ./dashboard/ to work on both together.

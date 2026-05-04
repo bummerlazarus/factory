@@ -8,7 +8,7 @@ The rebuild ran 2026-04-17 → 2026-04-26 (~10 days). Effectively all planned wo
 
 - **Foundation (W0–W1):** Phase 0.5 security fixes, sessions/work_log/observations/skill_versions/reference_docs schema, pgvector + `memory` table + `match_memory()`, Pinecone → pgvector data migration (13,192 rows), MVP agents (Cordis + Corva).
 - **Capture pipeline (W2):** `capture()` Edge Function with text/URL/voice/file paths, embeddings, Firecrawl enrichment, MCP tool, dashboard `/inbox` page with Realtime, `capture-api.md` webhook contract.
-- **Dashboard Track A (W3):** Sessions/changelog/tasks/workspace/agents/messaging all migrated from filesystem to Supabase. `/files` gated. Vercel deploy live at `dashboard-nine-delta-26.vercel.app`.
+- **Dashboard Track A (W3):** Sessions/changelog/tasks/workspace/agents/messaging all migrated from filesystem to Supabase. `/files` gated. ~~Vercel deploy live at `dashboard-nine-delta-26.vercel.app`.~~ **Correction (2026-05-04):** the agent dashboard was never actually deployed to Vercel. `dashboard-nine-delta-26.vercel.app` belongs to a different app (DC podcast web) that happens to share the Vercel project name `dashboard`. The agent dashboard is local-only.
 - **Ingest (W4):** Voice memos (Whisper), YouTube ingest, signals ingest, iPhone Shortcuts guide.
 - **Content engine (W5):** Corva ideation/drafting/repurposing, IOC system imported, YouTube + Beehiiv metrics, `/metrics` panel, Double-Down + Educated-Bets cron skills. Instagram abandoned (no token); Circle deferred.
 - **Research-director layer (W6):** Librarian daily clustering, themes scan, cross-silo connections scan, synthesis Edge Function, `/research` dashboard, IP-map regenerator, audience pain-points (YouTube comments).
